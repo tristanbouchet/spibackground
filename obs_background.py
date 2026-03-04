@@ -32,7 +32,8 @@ class LiveTimeRev:
         hdul_live = fits.open(livetime_path)
         self.det_live_rdx = hdul_live['RDX'].data['RDX']
         self.num_det_live = hdul_live['LIVE_DET'].data['LIVE_DET']
-        self.det_time = hdul_live[f'{self.evt_type}_DET_TIME'].data
+        if evt_type=='SE' or evt_type=='PSD':
+            self.det_time = hdul_live[f'SE_DET_TIME'].data
     
     def find_live_rev(self, rev: str):
         '''returns the array containing the live time of each detector for a rev'''
@@ -169,7 +170,7 @@ class ObsBkg:
 
     ##### Init obs constants (independent of scw) #####
 
-    def init_rev_bkg_list(self, livetime_rev: LiveTimeRev, bkg_db_dir='BKG_DB'):
+    def init_rev_bkg_list(self, livetime_rev: LiveTimeRev, bkg_db_dir='.'):
         print('Initialize data base meta')
         hdul_meta = fits.open(f'{bkg_db_dir}/{self.evt_type}/info_rev_bkg_{self.evt_type}.fits.gz')
         self.valid_rev_list = hdul_meta['VALID_REV'].data['VALID']

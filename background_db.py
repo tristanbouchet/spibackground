@@ -38,8 +38,15 @@ def order_path_list(spec_params_path_list):
     file_order_idx = np.argsort([float(f.split('_')[4]) for f in spec_params_file_list])
     return [spec_params_path_list[i] for i in file_order_idx]
 
-def idx_to_energy_SE(x):
-    return 18.25 + x * 0.5
+class EnergyConversion:
+    '''Static methods for energy-index conversions'''
+    @staticmethod
+    def idx_to_energy_SE(x):
+        return 18.25 + x * 0.5
+    
+    @staticmethod
+    def idx_to_energy_HE(x):
+        return 18.25 + x
 
 def log_erfc(x):
     '''logarithm of the complementary error function
@@ -141,9 +148,12 @@ class BkgEband:
         self.Em = self.param_sav['xc']
         self.idx_range = self.param_sav['x_idx_range']
         # Make energy range (in keV)
-        if evt_type=='SE':
-            self.E_range = idx_to_energy_SE(self.idx_range)
+        if evt_type=='SE' or 'PSD':
+            self.E_range = EnergyConversion.idx_to_energy_SE(self.idx_range)
             self.bin_size = .5
+        elif evt_type=='HE':
+            self.E_range = EnergyConversion.idx_to_energy_HE(self.idx_range)
+            self.bin_size = 1.
         else: raise ValueError(f'Event type {evt_type} not implemented.')
 
         # params 4D table (value/error, param, detector, revolution)
@@ -198,11 +208,16 @@ class BkgList:
     '''
     def __init__(self, spec_params_path_list, evt_type='SE'):
         self.evt_type=evt_type
-        if evt_type=='SE':
+        if evt_type=='SE' or evt_type=='PSD':
             self.bin_size = .5
             self.n_detectors = 19
             self.idx_range = np.arange(3964)
-            self.E_range = idx_to_energy_SE(self.idx_range)
+            self.E_range = EnergyConversion.idx_to_energy_SE(self.idx_range)
+        elif evt_type=='HE':
+            self.bin_size = 1.
+            self.n_detectors = 19
+            self.idx_range = np.arange(7982)
+            self.E_range = EnergyConversion.idx_to_energy_HE(self.idx_range)
         else:
             raise NotImplementedError(evt_type)
         # load background for every energy band
@@ -342,7 +357,7 @@ class BkgList:
             
             # write to file
             hdul = fits.HDUList([primary_hdu, energy_hdu, cont_hdu, lines_hdu])
-            filename = f'{output_dir}/bkg_rate_rev_{nrev:04d}_SE{file_ext}'
+            filename = f'{output_dir}/bkg_rate_rev_{nrev:04d}_{self.evt_type}{file_ext}'
             hdul.writeto(filename, overwrite=True)
         
         # Create metadata FITS file
@@ -428,11 +443,18 @@ def make_det_livetime_fits(sav_file, fits_file):
     hdul.writeto(fits_file, overwrite=True)
     print(f"FITS file created: {fits_file}")
 
+bkg_sav_path = {
+        'SE':'/data1/ipp_afs_mirror/integral/data/databases/spi_line_db/data',
+        'PSD':'/data1/ipp_afs_mirror/integral/data/databases/spi_line_db/data/psd/links',
+        'HE':'/home/nbauer/cookbook/SPI_cookbook/examples/Crab/cookbook_dataset_02_0514-2000keV_PSD_new/spi/bg'
+}
+''''Dictionary with paths to the .sav folder'''
 
 if __name__=='__main__':
 
-    evt_type='SE'
-    spec_param_dir = '/data1/ipp_afs_mirror/integral/data/databases/spi_line_db/data/save/0043-2877'
+    evt_type=input('event type?')
+    spec_param_dir = bkg_sav_path[evt_type]
+
     bkg_db_dir = '/home/tbouchet/BKG_DB'
     # rev_start, rev_stop = 0, 3000
     rev_start, rev_stop = 40, 50
