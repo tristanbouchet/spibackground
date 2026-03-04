@@ -426,3 +426,23 @@ def make_det_livetime_fits(sav_file, fits_file):
     hdul = fits.HDUList([primary_hdu, rdx_hdu, live_det_hdu, se_hdu, de_hdu, te_hdu])
     hdul.writeto(fits_file, overwrite=True)
     print(f"FITS file created: {fits_file}")
+
+
+if __name__=='__main__':
+
+    evt_type='SE'
+    spec_param_dir = '/data1/ipp_afs_mirror/integral/data/databases/spi_line_db/data/save/0043-2877'
+    bkg_db_dir = '/home/tbouchet/BKG_DB'
+    # rev_start, rev_stop = 0, 3000
+    rev_start, rev_stop = 40, 50
+    
+    revolutions=np.arange(0, 3000, dtype='int64')
+
+    # import .sav files with params
+    spec_params_path_list = glob(f'{spec_param_dir}/com_spec_params_e*_revidx_*.sav')
+    spec_params_path_list = order_path_list(spec_params_path_list)
+
+    # compute background for all rev and write FITS files
+    bkg_full = BkgList(spec_params_path_list, evt_type=evt_type)
+    bkg_full.write_fits_files(output_dir=f'{bkg_db_dir}/{evt_type}', revolutions=revolutions, compress=True)
+
