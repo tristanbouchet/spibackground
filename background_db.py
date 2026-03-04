@@ -5,8 +5,6 @@ this takes more memory space (~1 MB per rev), but saves time by avoiding re-calc
 '''
 
 from astropy.io import fits
-import matplotlib.pyplot as plt
-from matplotlib.ticker import ScalarFormatter, FormatStrFormatter, LogFormatter
 import numpy as np
 from scipy.io import readsav
 from scipy.special import erfc, log_ndtr
@@ -17,7 +15,7 @@ from glob import glob
 import functools
 from time import time
 from datetime import datetime
-    
+
 
 GAUSSCONST = np.sqrt(np.pi/2)
 LOGGAUSSCONST = np.log(GAUSSCONST) 
@@ -69,16 +67,6 @@ def distorted_gauss(E, A, E0, sig, tau):
 def power_law(E, Em, C0, alpha):
     '''C0 in counts/bin'''
     return C0 * (E/Em)**alpha
-
-class LogFormatterNoZeros(LogFormatter):
-    '''matplotlib formatter to avoid powers of 10 and trailing 0s'''
-    def __call__(self, x, pos=None):
-        # Use LogFormatter's logic for minor_thresholds
-        result = super().__call__(x, pos)
-        if result:  # If LogFormatter decided to show this tick
-            return f'{x:g}' # no trailing zeros
-        return result
-
 
 #################### Background models ####################
 
@@ -193,6 +181,7 @@ class BkgEband:
         return self.total_spec
     
     def plot(self, E):
+        import matplotlib.pyplot as plt
         fig, ax= plt.subplots(1,1,figsize=(8,6))
         ax.plot(E, self.spec_dico['cont'], label='continuum', color='grey', linestyle='--')
         for l in self.spec_dico['lines']:
@@ -269,6 +258,7 @@ class BkgList:
         return {'cont': self.cont_spec, 'sumlines': self.sumlines_spec}
     
     def plot(self):
+        import matplotlib.pyplot as plt
         fig, ax = plt.subplots(1, 1, figsize=(8, 6))
         ax.plot(self.E_range_merged, self.total_spec, color='k', label='total')
         ax.set_xlabel('E (keV)')
@@ -436,7 +426,7 @@ if __name__=='__main__':
     # rev_start, rev_stop = 0, 3000
     rev_start, rev_stop = 40, 50
     
-    revolutions=np.arange(0, 3000, dtype='int64')
+    revolutions=np.arange(rev_start, rev_stop, dtype='int64')
 
     # import .sav files with params
     spec_params_path_list = glob(f'{spec_param_dir}/com_spec_params_e*_revidx_*.sav')
