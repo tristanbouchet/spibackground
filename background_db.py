@@ -160,9 +160,8 @@ class BkgEband:
         # convert revolution number into the right index
         idx_rev_list = np.where(self.orbits==nrev)[0]
         if len(idx_rev_list)==0:
-            # raise IndexError(f'rev {nrev} not in file {self.spec_param_file}!')
-            print(f'rev {nrev} not in file {self.spec_param_file}!')
-            return None
+            # print(f'rev {nrev} not in file {self.spec_param_file}!')
+            return False
         else:
             idx_rev = idx_rev_list[0]
         if E is None:
@@ -178,7 +177,7 @@ class BkgEband:
         self.lines_sum = self.spec_dico['lines'].sum(axis=0)
         self.total_spec = self.spec_dico['cont'] + self.lines_sum
         if plot: self.plot(E)
-        return self.total_spec
+        return True
     
     def plot(self, E):
         import matplotlib.pyplot as plt
@@ -230,8 +229,15 @@ class BkgList:
         cont_spec = np.zeros(len(self.idx_range))
         sumlines_spec = np.zeros(len(self.idx_range))
         
+        n_eband = 0
+        # Goes over all the energy band in the list for 1 rev/1 det
         for bkg in self.bkg_range_list:
-            bkg.calc_spec_rev_det_eband(nrev=nrev, ndet=ndet, E=None, plot=False)
+            # compute background for 1 energy band
+            is_calc = bkg.calc_spec_rev_det_eband(nrev=nrev, ndet=ndet, E=None, plot=False)
+
+            # if energy band not defined, skip iteration
+            if not is_calc: continue
+            else: n_eband+=1
             
             # Extract components
             continuum = bkg.spec_dico['cont']
@@ -243,6 +249,8 @@ class BkgList:
             cont_spec[global_indices] += continuum
             sumlines_spec[global_indices] += sumlines
         
+        if n_eband==0:
+            return None
         # Average in overlapping regions
         cont_spec = cont_spec / np.maximum(self.n_contributors, 1)
         sumlines_spec = sumlines_spec / np.maximum(self.n_contributors, 1)
@@ -301,6 +309,9 @@ class BkgList:
             
             for ndet in range(self.n_detectors):
                 spec_dict = self.calc_spec_rev_det(nrev, ndet, plot=False)
+                if spec_dict is None:
+                    print(f'No background for rev {nrev}.')
+                    break
                 cont_array[ndet, :] = spec_dict['cont']
                 lines_array[ndet, :] = spec_dict['sumlines']
             
