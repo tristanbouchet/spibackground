@@ -5,13 +5,12 @@ The base model (per revolution and detector) are computed beforehand and stored 
 
 from astropy.io import fits
 import matplotlib.pyplot as plt
-from matplotlib.ticker import ScalarFormatter, FormatStrFormatter, LogFormatter
 import numpy as np
+# from matplotlib.ticker import ScalarFormatter, FormatStrFormatter, LogFormatter
 # from tqdm import tqdm
 # default libraries
-import shutil
 import functools
-from glob import glob
+import os
 from time import time
 from datetime import datetime
 
@@ -204,7 +203,8 @@ class ObsBkg:
         rev_indices_for_avg = np.array([self.rev_to_idx[rev] for rev in self.rev_list])
         tracer_avg_per_rev_per_scw = tracer_avg_per_rev[rev_indices_for_avg]
         self.tracer_norm = tracer_avg / tracer_avg_per_rev_per_scw
-    
+
+    @timer
     def calc_bkg(self, bkg_types=None):
         '''
         Calculate background spectrum for all scw, detectors, and background types.
@@ -219,6 +219,7 @@ class ObsBkg:
             Dictionary with background types as keys and spectra as values.
             Each spectrum has shape (Ndet*Nscw, Nchan), indexed as [det + Ndet*scw, chan]
         '''
+        print(f'Calculating background for {self.pt_num} pointings, {self.det_num} detectors')
         # Use all available background types if not specified
         if bkg_types is None:
             bkg_types = self.bkg_rev_list[0].bkg_types
@@ -250,7 +251,7 @@ class ObsBkg:
             # Create 3D array with counts and Poisson errors: (Ndet*Nscw, Nchan, 2)
             bkg_with_err = np.zeros((bkg_output.shape[0], bkg_output.shape[1], 2))
             bkg_with_err[:, :, 0] = bkg_output  # counts
-            bkg_with_err[:, :, 1] = np.sqrt(bkg_output)  # Poisson error
+            bkg_with_err[:, :, 1] = np.sqrt(np.abs(bkg_output))  # Poisson error
             bkg_output_dico[bkg_type] = bkg_with_err
         
         self.bkg_output_dico = bkg_output_dico
@@ -355,6 +356,7 @@ class ObsBkg:
             ax.legend()
         return ax
     
+    @timer
     def write_output_bkg(self, output_dir=None, compress=True):
         '''Write background spectra to FITS files.
         
@@ -373,22 +375,24 @@ class ObsBkg:
 
         # Create background output directory (re-create if already exists)
         if output_dir is None:
-            output_dir = f'{main_dir}/spi/bg-e{str(self.emin).zfill(4)}-{str(self.emin).zfill(4)}'
+            output_dir = f'{main_dir}/spi/bg-e{str(int(self.emin)).zfill(4)}-{str(int(self.emax)).zfill(4)}'
         print(f'Creating output dir: {output_dir}')
-        shutil.rmtree(output_dir, ignore_errors=True)
+        if os.path.exists(output_dir): pass
+        else: os.mkdir(output_dir)
         
         # Write individual background files
         for bkg_type, data in self.bkg_output_dico.items():
+            print(f'Writting {bkg_type}...')
             short_name = bkg_name_map.get(bkg_type, bkg_type.lower())
             counts = data[:, :, 0].astype(np.float32)
             errors = data[:, :, 1].astype(np.float32)
-            nchan = counts.shape[1]
             
-            cols = fits.ColDefs([
-                fits.Column(name='COUNTS', format=f'{nchan}E', array=counts),
-                fits.Column(name='STAT_ERR', format=f'{nchan}E', array=errors)
-            ])
-            bmod_hdu = fits.BinTableHDU.from_columns(cols)
+            bmod_hdu = fits.BinTableHDU.from_columns(
+                fits.ColDefs([
+                fits.Column(name='COUNTS', format=f'{self.ebin_num}E', array=counts),
+                fits.Column(name='STAT_ERR', format=f'{self.ebin_num}E', array=errors)
+                ])
+            )
             bmod_hdu.header.update({'EXTNAME': 'SPI.-BMOD-DSP', 'DET_NUM': self.det_num,
                                     'PT_NUM': self.pt_num, 'EBIN_NUM': self.ebin_num, 'TYPE': bkg_type})
             
@@ -427,8 +431,10 @@ class ObsBkg:
 
 if __name__=='__main__':
 
-    evt_type=input('event type?')
+    evt_type=input('event type?\n')
 
+    # bkg_db_dir = '/Users/tbastro/SPI_analysis/BACKGROUND/BKG_DB'
+    # main_dir = '/Users/tbastro/SPI_analysis/BACKGROUND/crab_dir_test'
     bkg_db_dir = '/home/tbouchet/BKG_DB'
     main_dir = '/home/tbouchet/cookbook/SPI_cookbook/examples/Crab/cookbook_dataset_02_0020-0600keV_SE'
 
