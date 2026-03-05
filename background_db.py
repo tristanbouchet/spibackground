@@ -328,10 +328,16 @@ class BkgList:
                 spec_dict = self.calc_spec_rev_det(nrev, ndet, plot=False)
                 if spec_dict is None:
                     print(f'No background for rev {nrev}.')
+                    valid_rev = False
                     break
                 cont_array[ndet, :] = spec_dict['cont']
                 lines_array[ndet, :] = spec_dict['sumlines']
-            
+                valid_rev = True
+                
+            # skip FITS creation if unvalid rev
+            if not valid_rev:
+                continue
+
             # Create FITS file
             primary_hdu = fits.PrimaryHDU()
             primary_hdu.header['SATEL'] = 'INTEGRAL'
