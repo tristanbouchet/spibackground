@@ -173,14 +173,20 @@ class ObsBkg:
     ##### Init obs constants (independent of scw) #####
 
     def init_rev_bkg_list(self, livetime_rev: LiveTimeRev, bkg_db_dir='.'):
+        '''
+        Use the list of unique rev to load all the required DB background
+        if a rev is not in the DB, it will find the closest previous valid rev
+        '''
         print('Initialize data base meta')
         hdul_meta = fits.open(f'{bkg_db_dir}/{self.evt_type}/info_rev_bkg_{self.evt_type}.fits.gz')
-        self.valid_rev_list = hdul_meta['VALID_REV'].data['VALID']
+        self.valid_rev_list = hdul_meta['VALID_REV'].data['LASTVALID']
         # self.E_bds = hdul_meta['ENERGY'].data['E']
         print('Initialize revolution backgrounds from data base')
         self.bkg_rev_list = []
         for rev in self.rev_unique:
-            # TO DO: take latest previous rev when orbit index is -1 
+            last_rev = self.valid_rev_list[rev - 1]
+            if last_rev==-1:
+                raise NotImplementedError(f'rev {rev} has no model background! check scw list.')
             rev_bkg = RevBkgDB(rev, self.evt_type, bkg_db_dir)
             rev_bkg.counts_to_rate(livetime_rev)
             rev_bkg.make_rbn_mat(self.E_bds)
@@ -433,10 +439,13 @@ if __name__=='__main__':
 
     evt_type=input('event type?\n')
 
-    # bkg_db_dir = '/Users/tbastro/SPI_analysis/BACKGROUND/BKG_DB'
-    # main_dir = '/Users/tbastro/SPI_analysis/BACKGROUND/crab_dir_test'
-    bkg_db_dir = '/home/tbouchet/BKG_DB'
+    # Directory with observation run
     main_dir = '/home/tbouchet/cookbook/SPI_cookbook/examples/Crab/cookbook_dataset_02_0020-0600keV_SE'
+    # main_dir = '/Users/tbastro/SPI_analysis/BACKGROUND/crab_dir_test'
+
+    # Directory with the background data base
+    bkg_db_dir = '/home/tbouchet/BKG_DB'
+    # bkg_db_dir = '/Users/tbastro/SPI_analysis/BACKGROUND/BKG_DB'
 
     obs_bkg = ObsBkg(main_dir, evt_type)
     livetime_rev = LiveTimeRev(bkg_db_dir+'/det_livetime_rev.fits',evt_type)

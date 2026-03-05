@@ -319,7 +319,10 @@ class BkgList:
             fits.Column(name='E_HI', format='D', unit='keV', array=E_merged + self.bin_size/2)
         ])
         energy_hdu.header['EXTNAME'] = 'ENERGY'
-        
+
+        # Create valid revolutions
+        valid_rev_list = np.zeros(3000, dtype=int)
+
         for nrev in tqdm(revolutions):
             cont_array = np.zeros((self.n_detectors, E_merged.shape[0]))
             lines_array = np.zeros((self.n_detectors, E_merged.shape[0]))
@@ -333,10 +336,12 @@ class BkgList:
                 cont_array[ndet, :] = spec_dict['cont']
                 lines_array[ndet, :] = spec_dict['sumlines']
                 valid_rev = True
-                
-            # skip FITS creation if unvalid rev
+
+            # skip FITS creation if unvalid rev, else update valid list
             if not valid_rev:
                 continue
+            else:
+                valid_rev_list[nrev-1] = 1
 
             # Create FITS file
             primary_hdu = fits.PrimaryHDU()
@@ -376,14 +381,21 @@ class BkgList:
         meta_primary_hdu.header['DATE'] = datetime.now().strftime('%Y-%m-%d %H:%M')
         meta_primary_hdu.header['AUTHOR'] = 'tbouchet'
         
-        # Create valid revolutions extension
-        valid_rev_list = np.zeros(3000, dtype=int)
-        valid_rev_list[revolutions - 1] = 1  # -1 because revolutions are 1-indexed
+        
+        # Create LASTVALID array: for each rev, store the closest previous valid rev
         rev_list = np.arange(1, 3001)
+        valid_rev_array = np.full(3000, -1, dtype=int)
+        last_valid_rev = -1
+        for rev in rev_list:
+            # if current rev valid, update last valid rev, otherwise it will keep the one from previous iter
+            if valid_rev_list[rev - 1] == 1:
+                last_valid_rev = rev
+            valid_rev_array[rev - 1] = last_valid_rev
         
         cols_valid = [
             fits.Column(name='REV', format='J', array=rev_list),
-            fits.Column(name='VALID', format='J', array=valid_rev_list)
+            fits.Column(name='VALID', format='J', array=valid_rev_list),
+            fits.Column(name='LASTVALID', format='J', array=valid_rev_array)
         ]
         valid_hdu = fits.BinTableHDU.from_columns(cols_valid)
         valid_hdu.header['EXTNAME'] = 'VALID_REV'
@@ -454,6 +466,8 @@ def make_det_livetime_fits(sav_file, fits_file):
 bkg_sav_path = {
         'SE':'/data1/ipp_afs_mirror/integral/data/databases/spi_line_db/data',
         'PSD':'/data1/ipp_afs_mirror/integral/data/databases/spi_line_db/data/psd/links',
+        # 'SE':'/Users/tbastro/SPI_analysis/BACKGROUND/BG_SAV/SE',
+        # 'PSD':'/Users/tbastro/SPI_analysis/BACKGROUND/BG_SAV/PSD',
         'HE':'/data1/ipp_afs_mirror/integral/software/local/idl/cw_shared/BG_HighRange/specs_SE',
         'DE':'/data1/ipp_afs_mirror/integral/software/local/idl/cw_shared/BG_HighRange/specs_DE'
 }
@@ -461,15 +475,16 @@ bkg_sav_path = {
 
 if __name__=='__main__':
 
-    evt_type=input('event type?')
+    evt_type=input('event type?\n')
     spec_param_dir = bkg_sav_path[evt_type]
 
+    # Directory with the background data base
+    # bkg_db_dir = f'/Users/tbastro/SPI_analysis/BACKGROUND/BKG_DB'
     bkg_db_dir = f'/home/tbouchet/BKG_DB'
     # rev_start, rev_stop = 0, 3000
     rev_start, rev_stop = 40, 50
     
     revolutions=np.arange(rev_start, rev_stop, dtype='int64')
-
     # import .sav files with params
     spec_params_path_list = glob(f'{spec_param_dir}/com_spec_params_e*_revidx_*.sav')
     spec_params_path_list = order_path_list(spec_params_path_list)
