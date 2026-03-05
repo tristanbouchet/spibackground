@@ -9,6 +9,7 @@ from matplotlib.ticker import ScalarFormatter, FormatStrFormatter, LogFormatter
 import numpy as np
 # from tqdm import tqdm
 # default libraries
+import shutil
 import functools
 from glob import glob
 from time import time
@@ -26,6 +27,7 @@ def timer(func):
     return wrapper
 
 class LiveTimeRev:
+    '''Live-time per rev and per detector'''
     def __init__(self, livetime_path, evt_type):
         self.evt_type = evt_type
         self.livetime_path = livetime_path
@@ -156,6 +158,7 @@ class ObsBkg:
         self.chan = ebds_data['CHANNEL']
         self.ebin_num = len(self.chan)
         E_min, E_max = ebds_data['E_MIN'], ebds_data['E_MAX']
+        self.emin, self.emax = E_min[0], E_max[-1]
         self.E_bds = np.column_stack([E_min, E_max])
         self.E_center = (E_min + E_max) / 2
         self.E_width = E_max - E_min
@@ -165,7 +168,7 @@ class ObsBkg:
         hdul_dead = fits.open(f'{self.main_dir}/spi/dead_time.fits.gz')
         self.det_num = hdul_dead[1].header['DET_NUM']
         self.pt_num = hdul_dead[1].header['PT_NUM']
-        self.livetime = hdul_dead[1].data['LIVETIME'] # in s, size=Ndet*Npointings
+        self.livetime_scw = hdul_dead[1].data['LIVETIME'] # in s, size=Ndet*Npointings
         # self.scw_list = [ScwBkg(scw_name) for scw_name in scw_file_list]
 
     ##### Init obs constants (independent of scw) #####
@@ -229,7 +232,7 @@ class ObsBkg:
             ])
         
         # Reshape livetime from (Nscw*Ndet,) to (Nscw, Ndet)
-        livetime_reshaped = self.livetime.reshape(self.pt_num, self.det_num)
+        livetime_reshaped = self.livetime_scw.reshape(self.pt_num, self.det_num) # correct one
         
         # Process each background type
         bkg_output_dico = {}
@@ -241,8 +244,8 @@ class ObsBkg:
             bkg = bkg_by_rev * self.tracer_norm[:, np.newaxis, np.newaxis] * livetime_reshaped[:, :, np.newaxis]
             
             # Reshape to 2D array: (Ndet*Nscw, Nchan) with indexing [det + Ndet*scw, chan]
-            nchan = bkg.shape[2]
-            bkg_output = bkg.transpose(1, 0, 2).reshape(-1, nchan)
+            # bkg_output = bkg.transpose(1, 0, 2).reshape(-1, self.ebin_num) # Wrong attempt by AI
+            bkg_output = bkg.reshape(-1, self.ebin_num)
             
             # Create 3D array with counts and Poisson errors: (Ndet*Nscw, Nchan, 2)
             bkg_with_err = np.zeros((bkg_output.shape[0], bkg_output.shape[1], 2))
@@ -352,7 +355,7 @@ class ObsBkg:
             ax.legend()
         return ax
     
-    def write_output_bkg(self, output_dir='./', compress=True):
+    def write_output_bkg(self, output_dir=None, compress=True):
         '''Write background spectra to FITS files.
         
         Creates one FITS file per background type with structure:
@@ -367,6 +370,12 @@ class ObsBkg:
         file_ext = '.fits.gz' if compress else '.fits'
         bkg_name_map = {'CONTINUUM': 'conti', 'LINES': 'lines'}
         bkgname_map = {'CONTINUUM': 'BG-conti', 'LINES': 'BG-lines'}
+
+        # Create background output directory (re-create if already exists)
+        if output_dir is None:
+            output_dir = f'{main_dir}/spi/bg-e{str(self.emin).zfill(4)}-{str(self.emin).zfill(4)}'
+        print(f'Creating output dir: {output_dir}')
+        shutil.rmtree(output_dir, ignore_errors=True)
         
         # Write individual background files
         for bkg_type, data in self.bkg_output_dico.items():
@@ -415,3 +424,17 @@ class ObsBkg:
         fits.HDUList([primary, grouping_hdu]).writeto(f'{output_dir}/output_bgmodel_conti_sep_idx.fits.gz', overwrite=True)
         print(f"Written {output_dir}/output_bgmodel_conti_sep_idx.fits.gz")
     
+
+if __name__=='__main__':
+
+    evt_type=input('event type?')
+
+    bkg_db_dir = '/home/tbouchet/BKG_DB'
+    main_dir = '/home/tbouchet/cookbook/SPI_cookbook/examples/Crab/cookbook_dataset_02_0020-0600keV_SE'
+
+    obs_bkg = ObsBkg(main_dir, evt_type)
+    livetime_rev = LiveTimeRev(bkg_db_dir+'/det_livetime_rev.fits',evt_type)
+    obs_bkg.normalize_tracer(livetime_rev)
+    obs_bkg.init_rev_bkg_list(livetime_rev, bkg_db_dir)
+    bkg_dict = obs_bkg.calc_bkg()
+    obs_bkg.write_output_bkg()

@@ -298,9 +298,9 @@ class BkgList:
             orbits_set = orbits_set.intersection(set(bkg.orbits))
         return np.array(sorted(orbits_set))
     
-    def write_fits_files(self, output_dir='./', revolutions=None, compress=False):
+    def write_fits_files(self, bkg_db_dir='./', revolutions=None, compress=False):
         '''write FITS files for each revolution with background spectra for each detector'''
-        os.makedirs(output_dir, exist_ok=True)
+        os.makedirs(bkg_db_dir, exist_ok=True)
         # if no revolution given, take all the revolutions available from .sav param files
         if revolutions is None:
             revolutions = self.get_available_revolutions()
@@ -357,7 +357,7 @@ class BkgList:
             
             # write to file
             hdul = fits.HDUList([primary_hdu, energy_hdu, cont_hdu, lines_hdu])
-            filename = f'{output_dir}/bkg_rate_rev_{nrev:04d}_{self.evt_type}{file_ext}'
+            filename = f'{bkg_db_dir}/bkg_rate_rev_{nrev:04d}_{self.evt_type}{file_ext}'
             hdul.writeto(filename, overwrite=True)
         
         # Create metadata FITS file
@@ -382,7 +382,7 @@ class BkgList:
         
         # Write metadata file
         hdul_meta = fits.HDUList([meta_primary_hdu, valid_hdu, energy_hdu])
-        meta_filename = f'{output_dir}/info_rev_bkg_{self.evt_type}{file_ext}'
+        meta_filename = f'{bkg_db_dir}/info_rev_bkg_{self.evt_type}{file_ext}'
         hdul_meta.writeto(meta_filename, overwrite=True)
 
 
@@ -446,16 +446,17 @@ def make_det_livetime_fits(sav_file, fits_file):
 bkg_sav_path = {
         'SE':'/data1/ipp_afs_mirror/integral/data/databases/spi_line_db/data',
         'PSD':'/data1/ipp_afs_mirror/integral/data/databases/spi_line_db/data/psd/links',
-        'HE':'/home/nbauer/cookbook/SPI_cookbook/examples/Crab/cookbook_dataset_02_0514-2000keV_PSD_new/spi/bg'
+        'HE':'/data1/ipp_afs_mirror/integral/software/local/idl/cw_shared/BG_HighRange/specs_SE',
+        'DE':'/data1/ipp_afs_mirror/integral/software/local/idl/cw_shared/BG_HighRange/specs_DE'
 }
-''''Dictionary with paths to the .sav folder'''
+'''Dictionary with paths to the .sav folder for each event type'''
 
 if __name__=='__main__':
 
     evt_type=input('event type?')
     spec_param_dir = bkg_sav_path[evt_type]
 
-    bkg_db_dir = '/home/tbouchet/BKG_DB'
+    bkg_db_dir = f'/home/tbouchet/BKG_DB/{evt_type}'
     # rev_start, rev_stop = 0, 3000
     rev_start, rev_stop = 40, 50
     
@@ -467,5 +468,5 @@ if __name__=='__main__':
 
     # compute background for all rev and write FITS files
     bkg_full = BkgList(spec_params_path_list, evt_type=evt_type)
-    bkg_full.write_fits_files(output_dir=f'{bkg_db_dir}/{evt_type}', revolutions=revolutions, compress=True)
+    bkg_full.write_fits_files(bkg_db_dir=bkg_db_dir, revolutions=revolutions, compress=True)
 
