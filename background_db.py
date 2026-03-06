@@ -111,7 +111,7 @@ class ClsPLModel(BkgModel):
 class Cls2PLModel(BkgModel):
     '''
     convolve line shape (gaussian with exponential) + power-law continuum
-    use a different (A,E0) for each line, but the same (sig,tau) for all lines
+    use a different (A,E0,sig) for each line, but the same tau for all lines
     result is in counts/bin
     '''
     def calc(self, E):
@@ -464,11 +464,12 @@ def make_det_livetime_fits(sav_file, fits_file):
     print(f"FITS file created: {fits_file}")
 
 bkg_sav_path = {
-        'SE':'/data1/ipp_afs_mirror/integral/data/databases/spi_line_db/data',
-        'PSD':'/data1/ipp_afs_mirror/integral/data/databases/spi_line_db/data/psd/links',
-        # 'SE':'/Users/tbastro/SPI_analysis/BACKGROUND/BG_SAV/SE',
-        # 'PSD':'/Users/tbastro/SPI_analysis/BACKGROUND/BG_SAV/PSD',
-        'HE':'/data1/ipp_afs_mirror/integral/software/local/idl/cw_shared/BG_HighRange/specs_SE',
+        # 'SE':'/data1/ipp_afs_mirror/integral/data/databases/spi_line_db/data',
+        # 'PSD':'/data1/ipp_afs_mirror/integral/data/databases/spi_line_db/data/psd/links',
+        # 'HE':'/data1/ipp_afs_mirror/integral/software/local/idl/cw_shared/BG_HighRange/specs_SE',
+        'SE':'/Users/tbastro/SPI_analysis/BACKGROUND/BG_SAV/SE',
+        'PSD':'/Users/tbastro/SPI_analysis/BACKGROUND/BG_SAV/PSD',
+        'HE':'/Users/tbastro/SPI_analysis/BACKGROUND/BG_SAV/HE_SE',
         'DE':'/data1/ipp_afs_mirror/integral/software/local/idl/cw_shared/BG_HighRange/specs_DE'
 }
 '''Dictionary with paths to the .sav folder for each event type'''

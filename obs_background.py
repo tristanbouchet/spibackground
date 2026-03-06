@@ -49,7 +49,8 @@ class LiveTimeRev:
 class RevBkgDB:
     '''
     background components from 1 revolution in ct/kev, imported from the background data base
-    possible evt_type: SE (single event), PSD, HE
+    possible evt_type: SE (single event), PSD
+    WIP: HE (High Energy single event)
     defined on 0.5 kev energy bins for SE
     Automatically discovers available background types from FITS extensions
     '''
@@ -424,12 +425,14 @@ class ObsBkg:
             ['MEMBER_XTENSION', 'MEMBER_NAME', 'MEMBER_VERSION', 'MEMBER_POSITION','MEMBER_LOCATION', 'MEMBER_URI_TYPE', 'BKGNAME'],
             ['8A', '32A', '1J', '1J', '256A', '3A', '32A'])]
         grouping_hdu = fits.BinTableHDU.from_columns(fits.ColDefs(cols_grouping))
-        grouping_hdu.header['EXTNAME'] = 'GROUPING'
+
+        grouping_hdu.header.update({'EXTNAME':'GROUPING', 'IDXMEMBR':'SPI.-BMOD-DSP', 'BASETYPE':'DAL_GROUP',
+                                    'TELESCOP':'INTEGRAL', 'GRPNAME': 'SPI.-BMOD-DSP-IDX', 'ORIGIN':'JMU',
+                                    'INSTRUME':'SPI','ISDCLEVL':'BKG_I','CREATOR':'python'
+                                    })
         
         primary = fits.PrimaryHDU()
-        primary.header.update({'IDXMEMBR':'SPI.-BMOD-DSP', 'BASETYPE':'DAL_GROUP', 'TELESCOP':'INTEGRAL',
-                               'ORIGIN':'jmu', 'INSTRUME':'SPI', 'ISDCLEVL':'BKG_I','CREATOR':'python',
-                               'AUTHOR': 'tbouchet', 'DATE': datetime.now().strftime('%Y-%m-%d %H:%M')
+        primary.header.update({'AUTHOR': 'tbouchet', 'DATE': datetime.now().strftime('%Y-%m-%d %H:%M')
                                })
         fits.HDUList([primary, grouping_hdu]).writeto(f'{output_dir}/output_bgmodel_conti_sep_idx.fits.gz', overwrite=True)
         print(f"Written {output_dir}/output_bgmodel_conti_sep_idx.fits.gz")
