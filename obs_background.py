@@ -177,6 +177,7 @@ class ObsBkg:
         '''
         Use the list of unique rev to load all the required DB background
         if a rev is not in the DB, it will find the closest previous valid rev
+        TO FIX: same rev is computed many times if many consecutive unvalid revs...
         '''
         print('Initialize data base meta')
         hdul_meta = fits.open(f'{bkg_db_dir}/{self.evt_type}/info_rev_bkg_{self.evt_type}.fits.gz')
