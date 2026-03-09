@@ -1,6 +1,6 @@
 # spibackground
 
-Python modules to create background for INTEGRAL/SPI
+Python modules to create background for INTEGRAL/SPI. 
 
 Required libraries: numpy, scipy, astropy, tqdm. Optional: matplotlib
 
