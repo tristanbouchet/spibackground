@@ -609,21 +609,18 @@ bkg_sav_path = {
 
 if __name__=='__main__':
 
+    # pid_start, pid_stop = 0, 3000
+    pid_start, pid_stop = 40, 50
     evt_type=input('event type?\n')
-    spec_param_dir = bkg_sav_path[evt_type]
 
+    spec_param_dir = bkg_sav_path[evt_type]
     # Directory with the background data base
-    # bkg_db_dir = f'/Users/tbastro/SPI_analysis/BACKGROUND/BKG_DB'
-    bkg_db_dir = f'/home/tbouchet/BKG_DB'
-    # rev_start, rev_stop = 0, 3000
-    rev_start, rev_stop = 40, 50
+    bkg_db_dir = f'/Users/tbastro/SPI_analysis/BACKGROUND/BKG_DB'
+    # bkg_db_dir = f'/home/tbouchet/BKG_DB'
     
-    pid_list=np.arange(rev_start, rev_stop, dtype='int64')
-    # import .sav files with params
-    spec_params_path_list = glob(f'{spec_param_dir}/com_spec_params_e*_revidx_*.sav')
-    spec_params_path_list = order_path_list(spec_params_path_list)
+    pid_list=np.arange(pid_start, pid_stop, dtype='int64')
 
     # compute background for all rev and write FITS files
-    bkg_full = BkgList(spec_params_path_list, evt_type=evt_type)
+    bkg_full = BkgList(spec_param_dir, evt_type=evt_type)
     bkg_full.write_fits_files(bkg_db_dir=bkg_db_dir, pid_list=pid_list, compress=True)
 
