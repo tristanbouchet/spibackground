@@ -596,19 +596,30 @@ def make_det_livetime_fits(sav_file, fits_file):
     hdul.writeto(fits_file, overwrite=True)
     print(f"FITS file created: {fits_file}")
 
-bkg_sav_path = {
-        # 'SE':'/data1/ipp_afs_mirror/integral/data/databases/spi_line_db/data/',
-        # 'PSD':'/data1/ipp_afs_mirror/integral/data/databases/spi_line_db/data/psd/links/',
-        # 'HE':'/data1/ipp_afs_mirror/integral/software/local/idl/cw_shared/BG_HighRange/specs_SE/',
-        'SE':'/Users/tbastro/SPI_analysis/BACKGROUND/BG_SAV/SE/',
-        'PSD':'/Users/tbastro/SPI_analysis/BACKGROUND/BG_SAV/PSD/',
-        'HE':'/Users/tbastro/SPI_analysis/BACKGROUND/BG_SAV/HE_SE/',
-        'DE':'/data1/ipp_afs_mirror/integral/software/local/idl/cw_shared/BG_HighRange/specs_DE/'
-}
-'''Dictionary with paths to the .sav folder for each event type'''
+def make_bkg_path_dico(testing=False):
+    '''
+    Dictionary with paths to the .sav folder for each event type
+    paths are not the same whether on local (testing with notebook) or server (called with main)
+    '''
+    global bkg_sav_path
+    if testing:
+        bkg_sav_path = {
+            'SE':'/Users/tbastro/SPI_analysis/BACKGROUND/BG_SAV/SE/',
+            'PSD':'/Users/tbastro/SPI_analysis/BACKGROUND/BG_SAV/PSD/',
+            'HE':'/Users/tbastro/SPI_analysis/BACKGROUND/BG_SAV/HE_SE/'
+            }
+    else:
+        bkg_sav_path = {    
+            'SE':'/data1/ipp_afs_mirror/integral/data/databases/spi_line_db/data/',
+            'PSD':'/data1/ipp_afs_mirror/integral/data/databases/spi_line_db/data/psd/links/',
+            'HE':'/data1/ipp_afs_mirror/integral/software/local/idl/cw_shared/BG_HighRange/specs_SE/',
+            'DE':'/data1/ipp_afs_mirror/integral/software/local/idl/cw_shared/BG_HighRange/specs_DE/'
+        }
+
 
 if __name__=='__main__':
 
+    make_bkg_path_dico(testing=False)
     # pid_start, pid_stop = 0, 3000
     pid_start, pid_stop = 40, 50
     evt_type=input('event type?\n')
@@ -624,3 +635,5 @@ if __name__=='__main__':
     bkg_full = BkgList(spec_param_dir, evt_type=evt_type)
     bkg_full.write_fits_files(bkg_db_dir=bkg_db_dir, pid_list=pid_list, compress=True)
 
+else:
+    make_bkg_path_dico(testing=True)
