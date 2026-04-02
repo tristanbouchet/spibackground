@@ -9,6 +9,7 @@ import numpy as np
 from scipy.io import readsav
 from scipy.special import erfc, log_ndtr
 from scipy.stats import exponnorm # convolved exp and gauss distribution
+import matplotlib.pyplot as plt
 from tqdm import tqdm
 # default libraries
 import os
@@ -90,7 +91,7 @@ def distorted_gauss(E, A, E0, sig, tau):
     # for small tau, exp ~ dirac dist -> line ~ gauss
     if tau<=1e-3:
         return GAUSSCONST * A * np.exp(-(E-E0)**2/ (2*sig**2))
-    # the exponnorm distribution from scipy has a right-tail, mapping (x=-E, mu=-E0) gives a left-tail
+    # the exponnorm distribution from scipy has a right-tail, chosing (x=-E, mu=-E0) gives a left-tail
     else:
         return SQRT2PI * A * sig * exponnorm.pdf(-E, tau/sig, loc=-E0, scale=sig)
 
@@ -244,7 +245,6 @@ class BkgEband:
         return True
     
     def plot(self, E):
-        import matplotlib.pyplot as plt
         fig, ax= plt.subplots(1,1,figsize=(8,6))
         ax.plot(E, self.spec_dico['cont'], label='continuum', color='grey', linestyle='--')
         for l in self.spec_dico['lines']:
@@ -362,7 +362,6 @@ class BkgList:
         return {'cont': self.cont_spec, 'sumlines': self.sumlines_spec}
     
     def plot(self):
-        import matplotlib.pyplot as plt
         fig, ax = plt.subplots(1, 1, figsize=(8, 6))
         ax.plot(self.E_range_merged, self.total_spec, color='k', label='total')
         ax.set_xlabel('E (keV)')
@@ -373,7 +372,6 @@ class BkgList:
         return ax
     
     def plot_det(self, pid, emin, emax):
-        import matplotlib.pyplot as plt
         F_list=[]
         for det in range(self.n_detectors):
             bkg_full.calc_spec_pid_det(pid=pid, det=det)
@@ -541,9 +539,7 @@ class BkgList:
 
 
 def make_det_livetime_fits(sav_file, fits_file):
-    '''
-    Create FITS file from spi_det_hi data with detector live times
-    '''
+    '''Create FITS file from spi_det_hi data with detector live times'''
 
     # Load SAV file
     spi_det_hi = readsav(sav_file)
@@ -619,18 +615,16 @@ def make_bkg_path_dico(testing=False):
 
 if __name__=='__main__':
 
-    make_bkg_path_dico(testing=False)
+    # Directory with the background data base
+    bkg_db_dir = f'/Users/tbastro/SPI_analysis/BACKGROUND/BKG_DB'
+    # bkg_db_dir = f'/home/tbouchet/BKG_DB'
     # pid_start, pid_stop = 0, 3000
     pid_start, pid_stop = 40, 50
     evt_type=input('event type?\n')
 
+    make_bkg_path_dico(testing = False)
     spec_param_dir = bkg_sav_path[evt_type]
-    # Directory with the background data base
-    bkg_db_dir = f'/Users/tbastro/SPI_analysis/BACKGROUND/BKG_DB'
-    # bkg_db_dir = f'/home/tbouchet/BKG_DB'
-    
     pid_list=np.arange(pid_start, pid_stop, dtype='int64')
-
     # compute background for all rev and write FITS files
     bkg_full = BkgList(spec_param_dir, evt_type=evt_type)
     bkg_full.write_fits_files(bkg_db_dir=bkg_db_dir, pid_list=pid_list, compress=True)

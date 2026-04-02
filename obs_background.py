@@ -50,15 +50,23 @@ class RevBkgDB:
     '''
     background components from 1 revolution in ct/kev, imported from the background data base
     possible evt_type: SE (single event), PSD
-    WIP: HE (High Energy single event)
     defined on 0.5 kev energy bins for SE
     Automatically discovers available background types from FITS extensions
+    WIP: HE (High Energy single event)
     '''
     def __init__(self, rev, evt_type: str, bkg_db_dir):
         '''rev treated as string because of leading 0s'''
         self.rev = str(rev).zfill(4) # convert into 4 characters, whichever type rev is
         self.evt_type = evt_type
-        self.path = f'{bkg_db_dir}/{evt_type}/bkg_rate_rev_{self.rev}_{evt_type}.fits.gz'
+        if evt_type=='SE' or evt_type=='PSD':
+            self.period_type = 'rev'
+
+        elif evt_type=='HE':
+            self.period_type = 'annealing'
+        else:
+            raise NotImplementedError(evt_type)
+        
+        self.path = f'{bkg_db_dir}/{evt_type}/bkg_rate_{self.period_type}_{self.rev}_{evt_type}.fits.gz'
         self.hdul = fits.open(self.path)
         
         # build useful energy arrays
@@ -77,9 +85,7 @@ class RevBkgDB:
             # convert record object to numpy array 
             bkg_array = np.column_stack([bkg_table[col] for col in bkg_table.names])
             self.bkg_data[bkg_type] = {
-                'array': bkg_array,
-                'spec': None,
-                'rate': None
+                'array': bkg_array, 'spec': None, 'rate': None
             }
     
     def counts_to_rate(self, livetime_rev: LiveTimeRev):
@@ -253,7 +259,6 @@ class ObsBkg:
             bkg = bkg_by_rev * self.tracer_norm[:, np.newaxis, np.newaxis] * livetime_reshaped[:, :, np.newaxis]
             
             # Reshape to 2D array: (Ndet*Nscw, Nchan) with indexing [det + Ndet*scw, chan]
-            # bkg_output = bkg.transpose(1, 0, 2).reshape(-1, self.ebin_num) # Wrong attempt by AI
             bkg_output = bkg.reshape(-1, self.ebin_num)
             
             # Create 3D array with counts and Poisson errors: (Ndet*Nscw, Nchan, 2)
