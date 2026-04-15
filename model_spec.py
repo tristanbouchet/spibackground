@@ -94,7 +94,7 @@ class BkgModel:
         '''
         if self.total_int is None:
             self.total_int = self.estim_integral(emin, emax)
-        r_scale=F0/self.total_int
+        r_scale = F0 / self.total_int
         self.param_dico['cont'][0] = r_scale * self.param_dico['cont'][0]
         for i in range(self.n_lines):
             self.param_dico['lines'][i][0] = r_scale * self.param_dico['lines'][i][0]
@@ -115,6 +115,7 @@ class BkgModel:
 
     def calc_fit(self, E, *params):
         '''return sum of all the flux components (for fitting purpose)'''
+        # print(params)
         self.init_params(params)
         return self.calc_tot(E)
 

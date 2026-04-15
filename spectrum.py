@@ -20,21 +20,26 @@ class Spectrum:
     
     def import_sav(self, pid):
         try:
-            return readsav(f"{self.rawspec_sav_path}Private_low-rev{pid:04d}.sav")
+            self.sav = readsav(f"{self.rawspec_sav_path}Private_low-rev{pid:04d}.sav")
         except FileNotFoundError:
-            return None
+            self.sav = None
+        return self.sav
     
     def get_spectrum(self, pid, det):
         '''Load raw spectrum for a given pid and detector
         
         Also sets self.counts and self.count_err attributes from the loaded data.
         '''
-        # Load spectra file for specific pid
-        sav = self.import_sav(pid)
-        if sav is None: return None
-        e_bounds = sav['spi_rev_spectra']['energy_boundaries'][0]
+        # Load spectra file for specific pid, if not done previously
+        if self.sav is None:
+            self.import_sav(pid)
+            if self.sav is None:
+                return None
+            
+        e_bounds = self.sav['spi_rev_spectra']['energy_boundaries'][0]
+        self.channel = e_bounds['CHANNEL']
         self.e_mid = (e_bounds['e_min'] + e_bounds['e_max']) / 2
-        spec = sav['spi_rev_spectra']['evts_det_spec'][0][det]
+        spec = self.sav['spi_rev_spectra']['evts_det_spec'][0][det]
         
         # Extract and store counts and count_err as attributes
         self.counts = spec['counts']
@@ -140,3 +145,8 @@ class Spectrum:
         ax.grid(True, alpha=0.3)
         
         return fig, ax
+    
+    def __str__(self):
+        from glob import glob
+        all_sav=glob(f"/Users/tbastro/SPI_analysis/BACKGROUND/RAW_SPEC/Private_low-rev????.sav")
+        return f"{len(all_sav)} rev available"

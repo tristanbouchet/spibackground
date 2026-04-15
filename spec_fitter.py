@@ -4,13 +4,14 @@ Fits spectral data using BkgModel classes with scipy optimization.
 '''
 
 import numpy as np
-from scipy.io import readsav
+from scipy.io import readsav, savemat
 from scipy.optimize import curve_fit, least_squares
 import matplotlib.pyplot as plt
 from model_spec import *
 import emcee
 import functools
 from time import time
+from tqdm import tqdm
 from background_db import timer
 from spectrum import Spectrum
 
@@ -21,6 +22,7 @@ class SpectrumFitter:
         self.init_param_dir = init_param_dir
         self.e_fit_min = e_fit_min
         self.e_fit_max = e_fit_max
+        self.type= type
         if type=='PSD' or type=='SE':
             self.bin_size=0.5
         elif type=='HE':
@@ -121,8 +123,9 @@ class SpectrumFitter:
         
         return popt, perr, success
     
-    @timer
-    def fit_spectrum(self, pid, det=None, verbose=False, method='scipy', maxfev=10000, init_params=None, calc_spec=True):
+    # @timer
+    def fit_spectrum(self, pid, det=None, verbose=False, method='scipy', maxfev=10000, init_params=None, 
+                     calc_spec=True, with_bounds=True):
         '''Fit spectrum. Options:
         - pid (single), det (int): fit single detector
         - pid (single), det (None): fit sum of all detectors for one pid
@@ -134,27 +137,34 @@ class SpectrumFitter:
             raise ValueError(f"Unknown method: {method}. Use 'scipy', 'least_squares', or 'mcmc'.")
         
         if init_params is None:
-            init_params = self.sav_param['left_det']
+            init_params = self.sav_param['left_det'].copy()
         
         # Load data based on pid/det combination
         if isinstance(pid, list) or isinstance(pid, np.ndarray):
             # Sum over multiple pids and all detectors
-            if calc_spec: _, _, e_mid, _ = self.spectrum.get_sumpid_spectrum(pid)
+            if calc_spec:
+                spec_res=self.spectrum.get_sumpid_spectrum(pid)
             result_key = 'sum_pids'
         elif det is None:
             # Sum over all detectors for one pid
-            if calc_spec: _, _, e_mid, _ = self.spectrum.get_pid_spectrum(pid)
+            if calc_spec:
+                spec_res=self.spectrum.get_pid_spectrum(pid)
             result_key = pid
         else:
             # Single detector, single pid
-            if calc_spec: _, _, e_mid = self.spectrum.get_spectrum(pid, det)
+            if calc_spec:
+                spec_res=self.spectrum.get_spectrum(pid, det)
             result_key = (pid, det)
+        
+        if spec_res is None:
+            return None
         
         e_mid=self.spectrum.e_mid
         mask = self._get_energy_mask(e_mid)
         e_data = e_mid[mask]
         counts_data = self.spectrum.counts[mask]
         counts_err = self.spectrum.count_err[mask]
+        # Integrate flux over data bins
         F0 = self.bin_size * np.sum(counts_data) 
         
         # dead detectors
@@ -168,61 +178,71 @@ class SpectrumFitter:
             return dead_param, dead_param, 'Dead'
 
         # Set initial parameters
-        self.model.init_params(params=init_params)
-        init_params = self.model.rescale_params(F0, self.e_fit_min, self.e_fit_max)
+        alpha_estim = 0.
         if np.abs(counts_data[-1] - counts_data[0]) > 1e-3:
             alpha_estim = np.log(counts_data[-1]/counts_data[0]) / np.log(self.e_fit_max/self.e_fit_min)
-            init_params[1] = alpha_estim
+            
+        init_params[1] = alpha_estim
+        self.model.init_params(params=init_params)
+        init_params = self.model.rescale_params(F0, self.e_fit_min, self.e_fit_max)
         
         # Perform fit
+        # Define parameter boundaries (for cls_plaw_function)
+        bounds = (-np.inf, np.inf)
+        if with_bounds:
+            # Set bounds for parameters
+            # should be integrated to Model class !
+            lower_bounds = np.full(len(init_params), 0.0)
+            upper_bounds = np.full(len(init_params), np.inf)
+            for i in range(len(init_params)):
+                # let power-law index free
+                if i == 1:
+                    lower_bounds[i] = -np.inf
+                # bounds E0 to minimum energy
+                elif (i - 3) % 4 == 0 and i >= 3:
+                    lower_bounds[i] = self.e_fit_min
+                # upper-bound to energy related parameters
+                if i >= 3:
+                    if (i - 3) % 4 == 0: # E0
+                        upper_bounds[i] = self.e_fit_max
+                    # elif (i - 3) % 4 == 1: # sigma
+                    #     upper_bounds[i] = self.e_fit_max - self.e_fit_min
+                    # elif (i - 3) % 4 == 2: # tau
+                    #     upper_bounds[i] = self.e_fit_max - self.e_fit_min
+            bounds = (lower_bounds, upper_bounds)
         try:
             if method == 'least_squares':
                 # Use scipy.optimize.least_squares
                 def residual(params):
                     self.model.init_params(params=params)
                     model_flux = self.model.calc_tot(e_data)
-                    return (counts_data - model_flux) / counts_err
+                    return (counts_data - model_flux) / np.abs(counts_err)
                 
-                result = least_squares(residual, init_params, max_nfev=maxfev)
+                result = least_squares(residual, x0=init_params, max_nfev=maxfev)
                 popt = result.x
+                # print(result)
                 # Estimate uncertainties from Jacobian
                 if result.jac is not None:
-                    cov = np.linalg.inv(result.jac.T @ result.jac)
-                    perr = np.sqrt(np.diag(cov))
+                    # cov = np.linalg.inv(result.jac.T @ result.jac)
+                    # perr = np.sqrt(np.diag(cov))
+                    perr=0.
                 else:
                     perr = np.full_like(popt, np.nan)
                 success = result.success
             else:
                 # Use scipy.optimize.curve_fit (default)
-                # Set bounds for parameters
-                # should be integrated to Model class !
-                lower_bounds = np.full(len(init_params), 0.0)
-                upper_bounds = np.full(len(init_params), np.inf)
-                for i in range(len(init_params)):
-                    # let power-law index free
-                    if i == 1:
-                        lower_bounds[i] = -np.inf
-                    # bounds E0 to minimum energy
-                    elif (i - 3) % 4 == 0 and i >= 3:
-                        lower_bounds[i] = self.e_fit_min
-                    # upper-bound to energy related parameters
-                    if i >= 3:
-                        if (i - 3) % 4 == 0: # E0
-                            upper_bounds[i] = self.e_fit_max
-                        # elif (i - 3) % 4 == 1: # sigma
-                        #     upper_bounds[i] = self.e_fit_max - self.e_fit_min
-                        # elif (i - 3) % 4 == 2: # tau
-                        #     upper_bounds[i] = self.e_fit_max - self.e_fit_min
-                # print('lower bounds:',lower_bounds)
-                # print('upper bounds:',upper_bounds)
-                popt, pcov = curve_fit(
+
+                result = curve_fit(
                     self.model.calc_fit, e_data, counts_data, p0=init_params, 
-                    sigma=counts_err, absolute_sigma=True, maxfev=maxfev,
-                    bounds=(lower_bounds, upper_bounds)
+                    sigma=counts_err, absolute_sigma=True, maxfev=maxfev, bounds=bounds,
+                    full_output=True
                     )
+                popt, pcov, infodict, mesg, ier = result
                 perr = np.sqrt(np.diag(pcov))
                 success = True
-        except (RuntimeError, np.linalg.LinAlgError) as e:
+
+        except (RuntimeError) as e:
+        # except (RuntimeError, np.linalg.LinAlgError) as e:
             if verbose:
                 print(f"Fit failed for {result_key}: {e}")
             popt = init_params
@@ -244,31 +264,93 @@ class SpectrumFitter:
         
         return popt, perr, success
     
-    def fit_all_detectors(self, pid, verbose=False, method='scipy'):
+    def save_last_result(self):
+        print('Saving last fit result to .npy file...')
+        file_name = f"fit_par_{self.type}_{self.e_fit_min}_{self.e_fit_max}keV.npy"
+        np.save(file_name, self.last_result['params'])
+
+    def fit_all_detectors(self, pid, verbose=False, method='scipy', maxfev=10000, init_params=None, 
+                     calc_spec=True, with_bounds=True):
         '''Fit all detectors for one pid'''
         results = {}
         for det in range(self.Ndet):
-            params, perr, success = self.fit_spectrum(pid, det, verbose=verbose, method=method)
-            results[det] = {
-                'params': params,
-                'perr': perr,
-                'success': success
-            }
+            params, perr, success = self.fit_spectrum(pid, det, verbose, method, maxfev, init_params, 
+                     calc_spec, with_bounds)
+            results[det] = {'params': params, 'perr': perr, 'success': success}
+
         return results
     
-    def fit_all_pids(self, pid_list, verbose=False, method='scipy'):
+    def fit_all_pids(self, pid_list, verbose=False, method='scipy', maxfev=10000, init_params=None, 
+                     calc_spec=True, with_bounds=True, save_to_file=True):
         '''Fit all detectors for all pids'''
-        results = {}
-        total = len(pid_list) * self.Ndet
-        count = 0
         
-        for pid in pid_list:
-            for det in range(self.Ndet):
-                self.fit_spectrum(pid, det, verbose=verbose, method=method)
-                count += 1
-                if verbose and count % 50 == 0:
-                    print(f"Progress: {count}/{total}")
+        valid_pid_list, ctime_list=[], []
+
+        for pid in tqdm(pid_list):
+            self.spectrum.import_sav(pid)
+            
+            if self.spectrum.sav is not None:
+                # print(f'pid {pid} valid')
+                valid_pid_list.append(pid)
+                ctime_list.append(self.spectrum.sav['spi_rev_spectra']['tmean'][0])
+
+                for det in range(self.Ndet):
+                    # print(f'det {det}')
+                    self.fit_spectrum(pid, det, verbose, method, maxfev, init_params, 
+                        calc_spec, with_bounds)
+            else:
+                pass
+                # print(f'pid {pid} unvalid')
         
+        print(f"{len(valid_pid_list)}/{len(pid_list)} pid are valid")
+
+        if save_to_file:
+            import pickle
+            # sav_keys = ['spec_params_det', 'orbits', 'x_idx_range', 'xc', 'fit_func', 'ctime']
+            # sav_type = [np.ndarray, np.ndarray, np.ndarray, np.float64, bytes, np.ndarray]
+            self.sav_dico={}
+
+            # Create 4D array: [value/error, params, detector, pid]
+            num_pids = len(valid_pid_list)
+            # Get number of parameters from first fit result
+            first_fit = self.fit_results[(valid_pid_list[0], 0)]
+            num_params = len(first_fit['params'])
+            spec_params_det = np.zeros((2, num_params, self.Ndet, num_pids), dtype=np.float64)
+            
+            for pid_idx, pid in enumerate(valid_pid_list):
+                for det in range(self.Ndet):
+                    if (pid, det) in self.fit_results:
+                        result = self.fit_results[(pid, det)]
+                        spec_params_det[0, :, det, pid_idx] = result['params']
+                        spec_params_det[1, :, det, pid_idx] = result['perr']
+
+            self.sav_dico['spec_params_det'] = np.asarray(spec_params_det, dtype=np.float64)
+            e_mid=self.spectrum.e_mid
+            mask = self._get_energy_mask(e_mid)
+            self.sav_dico['orbits'] = np.asarray(valid_pid_list, dtype=np.int32)
+            self.sav_dico['x_idx_range'] = np.asarray(self.spectrum.channel[mask], dtype=np.int32)
+            self.sav_dico['xc'] = np.asarray(self.sav_param['xc'], np.float64)
+            self.sav_dico['fit_fun'] = self.sav_param['fit_fun'] # bytes
+            self.sav_dico['ctime'] = np.asarray(ctime_list, dtype=np.float32)
+            
+
+            # write file
+            # Save using scipy.io.savemat (MATLAB format compatible with IDL readers)
+            # Note: scipy.io doesn't have native .sav writing, but savemat is the closest alternative
+            filename = f"com_spec_params_e{self.e_fit_min}_{self.e_fit_max}_revidx_{valid_pid_list[0]:04d}-{valid_pid_list[-1]:04d}.pkl"
+            # savemat(filename, self.sav_dico, oned_as='row')
+            with open(filename, 'wb') as f:
+                pickle.dump(self.sav_dico, f)
+
+            print(f"Saved to {filename}")
+            print(f"  - x_idx_range: shape {self.sav_dico['x_idx_range'].shape}")
+            print(f"  - orbits: shape {self.sav_dico['orbits'].shape}")
+            print(f"  - ctime: shape {self.sav_dico['ctime'].shape}")
+            print(f"  - spec_params_det: shape {self.sav_dico['spec_params_det'].shape}")
+            print(f"  - fit_fun: {self.sav_dico['fit_fun']}")
+            print(f"  - xc {self.sav_dico['xc']}")
+
+
         return self.fit_results
     
     ############### Plot stuff ###############

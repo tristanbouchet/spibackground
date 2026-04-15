@@ -271,7 +271,7 @@ class BkgList:
     def __init__(self, spec_param_dir, evt_type='SE', anneal_rev_bds=ANNEALING_BDS):
         self.evt_type=evt_type
         self.spec_param_dir = spec_param_dir
-        spec_params_path_list = glob(f'{spec_param_dir}*spec_params_e*idx_*.sav')
+        spec_params_path_list = glob(f'{spec_param_dir}*spec_params_e*idx_*.*')
         assert len(spec_params_path_list)!=0, f'No params sav files found in {spec_param_dir}!'
         spec_params_path_list = order_path_list(spec_params_path_list)
         # spec_params_path_list = glob(f'{spec_param_dir}/{evt_type}/*spec_params_e_????_????.sav')
