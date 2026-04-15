@@ -12,16 +12,19 @@ from scipy.stats import exponnorm # convolved exp and gauss distribution
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 # default libraries
+import pickle
 import os
 from glob import glob
 import functools
 from time import time
 from datetime import datetime
 
+from model_spec import *
 
-GAUSSCONST = np.sqrt(np.pi/2)
-LOGGAUSSCONST = np.log(GAUSSCONST)
-SQRT2PI = np.sqrt(2*np.pi)
+
+# GAUSSCONST = np.sqrt(np.pi/2)
+# LOGGAUSSCONST = np.log(GAUSSCONST)
+# SQRT2PI = np.sqrt(2*np.pi)
 MAXNUM_REV = 3000
 MAXNUM_ANNEALING = 100
 # Contains bounds of inter-annealing revolutions
@@ -60,97 +63,97 @@ def order_path_list(spec_params_path_list):
 
 #################### Math functions ####################
 
-class EnergyConversion:
-    '''Static methods for energy-index conversions'''
-    @staticmethod
-    def idx_to_energy_SE(x):
-        return 18.25 + x * 0.5
+# class EnergyConversion:
+#     '''Static methods for energy-index conversions'''
+#     @staticmethod
+#     def idx_to_energy_SE(x):
+#         return 18.25 + x * 0.5
     
-    @staticmethod
-    def idx_to_energy_HE(x):
-        return 18.5 + x
+#     @staticmethod
+#     def idx_to_energy_HE(x):
+#         return 18.5 + x
     
-    @staticmethod
-    def energy_to_idx_HE(x):
-        return x - 18.5
+#     @staticmethod
+#     def energy_to_idx_HE(x):
+#         return x - 18.5
 
-def log_erfc(x):
-    '''
-    DEFUNCT
-    logarithm of the complementary error function
-    relies on the logarithm of gaussian cumulative distribution (log_ndtr) from scipy
-    this handles very large/small values well
-    '''
-    return np.log(2.0) + log_ndtr(-x * np.sqrt(2.0))
+# def log_erfc(x):
+#     '''
+#     DEFUNCT
+#     logarithm of the complementary error function
+#     relies on the logarithm of gaussian cumulative distribution (log_ndtr) from scipy
+#     this handles very large/small values well
+#     '''
+#     return np.log(2.0) + log_ndtr(-x * np.sqrt(2.0))
 
-def distorted_gauss(E, A, E0, sig, tau):
-    '''
-    convolved line shape (gaussian with exponential)
-    A is in counts/bin
-    '''
-    # for small tau, exp ~ dirac dist -> line ~ gauss
-    if tau<=1e-3:
-        return GAUSSCONST * A * np.exp(-(E-E0)**2/ (2*sig**2))
-    # the exponnorm distribution from scipy has a right-tail, chosing (x=-E, mu=-E0) gives a left-tail
-    else:
-        return SQRT2PI * A * sig * exponnorm.pdf(-E, tau/sig, loc=-E0, scale=sig)
+# def distorted_gauss(E, A, E0, sig, tau):
+#     '''
+#     convolved line shape (gaussian with exponential)
+#     A is in counts/bin
+#     '''
+#     # for small tau, exp ~ dirac dist -> line ~ gauss
+#     if tau<=1e-3:
+#         return GAUSSCONST * A * np.exp(-(E-E0)**2/ (2*sig**2))
+#     # the exponnorm distribution from scipy has a right-tail, chosing (x=-E, mu=-E0) gives a left-tail
+#     else:
+#         return SQRT2PI * A * sig * exponnorm.pdf(-E, tau/sig, loc=-E0, scale=sig)
 
-def power_law(E, Em, C0, alpha):
-    '''C0 in counts/bin'''
-    return C0 * (E/Em)**alpha
+# def power_law(E, Em, C0, alpha):
+#     '''C0 in counts/bin'''
+#     return C0 * (E/Em)**alpha
 
-#################### Background models ####################
+# #################### Background models ####################
 
-class BkgModel:
-    '''background model base class'''
-    def __init__(self, Em):
-        self.Em = Em
+# class BkgModel:
+#     '''background model base class'''
+#     def __init__(self, Em):
+#         self.Em = Em
     
-    def init_params(self, params):
-        self.params = params
-        self.n_par = len(self.params)
+#     def init_params(self, params):
+#         self.params = params
+#         self.n_par = len(self.params)
 
-    def calc(self, E):
-        raise NotImplementedError
+#     def calc(self, E):
+#         raise NotImplementedError
     
-    def __call__(self, E):
-        return self.calc(E)
+#     def __call__(self, E):
+#         return self.calc(E)
 
-class ClsPLModel(BkgModel):
-    '''
-    convolve line shape (gaussian with exponential) + power-law continuum
-    use a different (A,E0,sig,tau) for each line
-    result is in counts/bin
-    '''
-    def calc(self, E):
-        if (self.n_par - 2)%4 != 0:
-            raise IndexError
-        n_lines = (self.n_par - 2)//4
-        cont = power_law(E, self.Em, *self.params[:2])
-        all_lines = np.array([distorted_gauss(E, *self.params[2+4*l: 2+4*(l+1)]) for l in range(n_lines)])
-        return {'cont':cont, 'lines':all_lines}
+# class ClsPLModel(BkgModel):
+#     '''
+#     convolve line shape (gaussian with exponential) + power-law continuum
+#     use a different (A,E0,sig,tau) for each line
+#     result is in counts/bin
+#     '''
+#     def calc(self, E):
+#         if (self.n_par - 2)%4 != 0:
+#             raise IndexError
+#         n_lines = (self.n_par - 2)//4
+#         cont = power_law(E, self.Em, *self.params[:2])
+#         all_lines = np.array([distorted_gauss(E, *self.params[2+4*l: 2+4*(l+1)]) for l in range(n_lines)])
+#         return {'cont':cont, 'lines':all_lines}
     
-class Cls2PLModel(BkgModel):
-    '''
-    convolve line shape (gaussian with exponential) + power-law continuum
-    use a different (A,E0,sig) for each line, but the same tau for all lines
-    result is in counts/bin
-    '''
-    def calc(self, E):
-        if (self.n_par - 3)%3 != 0:
-            raise IndexError
-        n_lines = (self.n_par - 3)//3
-        cont = power_law(E, self.Em, *self.params[:2])
-        all_lines = np.array([distorted_gauss(E, *self.params[2+3*l: 2+3*(l+1)], self.params[-1])\
-                              for l in range(n_lines)])
-        return {'cont':cont, 'lines':all_lines}
+# class Cls2PLModel(BkgModel):
+#     '''
+#     convolve line shape (gaussian with exponential) + power-law continuum
+#     use a different (A,E0,sig) for each line, but the same tau for all lines
+#     result is in counts/bin
+#     '''
+#     def calc(self, E):
+#         if (self.n_par - 3)%3 != 0:
+#             raise IndexError
+#         n_lines = (self.n_par - 3)//3
+#         cont = power_law(E, self.Em, *self.params[:2])
+#         all_lines = np.array([distorted_gauss(E, *self.params[2+3*l: 2+3*(l+1)], self.params[-1])\
+#                               for l in range(n_lines)])
+#         return {'cont':cont, 'lines':all_lines}
 
 
-BKG_MODELS = {
-    'cls_plaw_function': ClsPLModel,
-    'cls_plaw_function2': Cls2PLModel,
-}
-"""Dictionary mapping function name in .sav files with the class name"""
+# BKG_MODELS = {
+#     'cls_plaw_function': ClsPLModel,
+#     'cls_plaw_function2': Cls2PLModel,
+# }
+# """Dictionary mapping function name in .sav files with the class name"""
 
 #################### Make background files from parameters ####################
 
@@ -164,9 +167,18 @@ class BkgEband:
     '''
     def __init__(self, evt_type, spec_param_dir, spec_param_file):
         self.evt_type = evt_type
-        # load the .sav IDL file
         self.spec_param_file = spec_param_file
-        self.param_sav = readsav(f"{spec_param_dir}{spec_param_file}")
+        self.par_file_ext = spec_param_file.split('.')[-1]
+        if self.par_file_ext=='sav':
+            # load the .sav IDL file
+            self.param_sav = readsav(f"{spec_param_dir}{spec_param_file}")
+        elif self.par_file_ext=='pkl':
+            # load pickle file (python native)
+            with open(spec_param_file, 'rb') as f:
+                self.param_sav = pickle.load(f)
+        else:
+            raise NotImplementedError(f"Unkown file extension {self.par_file_ext}")
+
         # params 4D table (value/error, param, detector, revolution)
         self.params_table = self.param_sav['spec_params_det']
         self.n_periods = self.params_table.shape[-1]

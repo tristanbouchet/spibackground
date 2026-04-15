@@ -171,7 +171,7 @@ class SpectrumFitter:
         if F0==0.:
             dead_param = np.zeros_like(init_params)
             self.fit_results[result_key] = {
-                'init_params': init_params, 'params': dead_param, 'perr': dead_param, 'success': 'Dead'
+                'init_params': init_params, 'params': dead_param, 'perr': dead_param, 'success': True, 'redchi2':0.
             }
             if verbose:
                 print(f"[Dead Detectors] {result_key}")
@@ -185,7 +185,9 @@ class SpectrumFitter:
         init_params[1] = alpha_estim
         self.model.init_params(params=init_params)
         init_params = self.model.rescale_params(F0, self.e_fit_min, self.e_fit_max)
-        
+        ndata = len(e_mid[mask])
+        npar = self.model.n_par
+        dof = ndata-npar
         # Perform fit
         # Define parameter boundaries (for cls_plaw_function)
         bounds = (-np.inf, np.inf)
@@ -229,9 +231,9 @@ class SpectrumFitter:
                 else:
                     perr = np.full_like(popt, np.nan)
                 success = result.success
+                chi2 = np.sum(result.fun**2)
             else:
                 # Use scipy.optimize.curve_fit (default)
-
                 result = curve_fit(
                     self.model.calc_fit, e_data, counts_data, p0=init_params, 
                     sigma=counts_err, absolute_sigma=True, maxfev=maxfev, bounds=bounds,
@@ -240,6 +242,11 @@ class SpectrumFitter:
                 popt, pcov, infodict, mesg, ier = result
                 perr = np.sqrt(np.diag(pcov))
                 success = True
+                res_sq = ((counts_data - self.model.calc_fit(e_data, *popt)) / counts_err)**2
+                chi2= np.sum(res_sq)
+
+            self.last_result = result    
+            redchi2 = chi2/dof
 
         except (RuntimeError) as e:
         # except (RuntimeError, np.linalg.LinAlgError) as e:
@@ -248,15 +255,17 @@ class SpectrumFitter:
             popt = init_params
             perr = np.full_like(init_params, np.nan)
             success = False
-        
+            redchi2=0.
+
         # Store results
-        self.last_result = {
+        self.last_fit = {
             'init_params': init_params,
             'params': popt,
             'perr': perr,
-            'success': success
+            'success': success,
+            'redchi2': redchi2,
         }
-        self.fit_results[result_key] = self.last_result
+        self.fit_results[result_key] = self.last_fit
         
         if verbose:
             status = "SUCCESS" if success else "FAILED"
@@ -264,10 +273,10 @@ class SpectrumFitter:
         
         return popt, perr, success
     
-    def save_last_result(self):
+    def save_last_fit(self):
         print('Saving last fit result to .npy file...')
         file_name = f"fit_par_{self.type}_{self.e_fit_min}_{self.e_fit_max}keV.npy"
-        np.save(file_name, self.last_result['params'])
+        np.save(file_name, self.last_fit['params'])
 
     def fit_all_detectors(self, pid, verbose=False, method='scipy', maxfev=10000, init_params=None, 
                      calc_spec=True, with_bounds=True):
@@ -304,39 +313,47 @@ class SpectrumFitter:
         
         print(f"{len(valid_pid_list)}/{len(pid_list)} pid are valid")
 
+
+        print(f"Filling final parameter table")
+        
+        # sav_keys = ['spec_params_det', 'orbits', 'x_idx_range', 'xc', 'fit_func', 'ctime']
+        # sav_type = [np.ndarray, np.ndarray, np.ndarray, np.float64, bytes, np.ndarray]
+        self.sav_dico={}
+
+        # Create 4D array: [value/error, params, detector, pid]
+        num_pids = len(valid_pid_list)
+        # Get number of parameters from first fit result
+        first_fit = self.fit_results[(valid_pid_list[0], 0)]
+        num_params = len(first_fit['params'])
+        spec_params_det = np.zeros((2, num_params, self.Ndet, num_pids), dtype=np.float64)
+        success_table = np.zeros((self.Ndet, num_pids), dtype=bool)
+        redchi2_table = np.zeros((self.Ndet, num_pids), dtype=np.float64)
+        num_failed_fit = 0
+        for pid_idx, pid in enumerate(valid_pid_list):
+            for det in range(self.Ndet):
+                if (pid, det) in self.fit_results:
+                    result = self.fit_results[(pid, det)]
+                    spec_params_det[0, :, det, pid_idx] = result['params']
+                    spec_params_det[1, :, det, pid_idx] = result['perr']
+                    success_table[det, pid_idx] = result['success']
+                    redchi2_table[det, pid_idx] = result['redchi2']
+                    if not result['success']: num_failed_fit+=1
+
+        print(f'{num_failed_fit}/{num_pids*self.Ndet} fits failed')
+        self.sav_dico['spec_params_det'] = np.asarray(spec_params_det, dtype=np.float64)
+        e_mid=self.spectrum.e_mid
+        mask = self._get_energy_mask(e_mid)
+        self.sav_dico['orbits'] = np.asarray(valid_pid_list, dtype=np.int32)
+        self.sav_dico['x_idx_range'] = np.asarray(self.spectrum.channel[mask], dtype=np.int32)
+        self.sav_dico['xc'] = np.asarray(self.sav_param['xc'], np.float64)
+        self.sav_dico['fit_func'] = self.sav_param['fit_fun'] # bytes
+        self.sav_dico['ctime'] = np.asarray(ctime_list, dtype=np.float32)
+        # extra tables
+        self.sav_dico['success'] = success_table
+        self.sav_dico['redchi2'] = redchi2_table
+
         if save_to_file:
             import pickle
-            # sav_keys = ['spec_params_det', 'orbits', 'x_idx_range', 'xc', 'fit_func', 'ctime']
-            # sav_type = [np.ndarray, np.ndarray, np.ndarray, np.float64, bytes, np.ndarray]
-            self.sav_dico={}
-
-            # Create 4D array: [value/error, params, detector, pid]
-            num_pids = len(valid_pid_list)
-            # Get number of parameters from first fit result
-            first_fit = self.fit_results[(valid_pid_list[0], 0)]
-            num_params = len(first_fit['params'])
-            spec_params_det = np.zeros((2, num_params, self.Ndet, num_pids), dtype=np.float64)
-            
-            for pid_idx, pid in enumerate(valid_pid_list):
-                for det in range(self.Ndet):
-                    if (pid, det) in self.fit_results:
-                        result = self.fit_results[(pid, det)]
-                        spec_params_det[0, :, det, pid_idx] = result['params']
-                        spec_params_det[1, :, det, pid_idx] = result['perr']
-
-            self.sav_dico['spec_params_det'] = np.asarray(spec_params_det, dtype=np.float64)
-            e_mid=self.spectrum.e_mid
-            mask = self._get_energy_mask(e_mid)
-            self.sav_dico['orbits'] = np.asarray(valid_pid_list, dtype=np.int32)
-            self.sav_dico['x_idx_range'] = np.asarray(self.spectrum.channel[mask], dtype=np.int32)
-            self.sav_dico['xc'] = np.asarray(self.sav_param['xc'], np.float64)
-            self.sav_dico['fit_fun'] = self.sav_param['fit_fun'] # bytes
-            self.sav_dico['ctime'] = np.asarray(ctime_list, dtype=np.float32)
-            
-
-            # write file
-            # Save using scipy.io.savemat (MATLAB format compatible with IDL readers)
-            # Note: scipy.io doesn't have native .sav writing, but savemat is the closest alternative
             filename = f"com_spec_params_e{self.e_fit_min}_{self.e_fit_max}_revidx_{valid_pid_list[0]:04d}-{valid_pid_list[-1]:04d}.pkl"
             # savemat(filename, self.sav_dico, oned_as='row')
             with open(filename, 'wb') as f:
@@ -347,7 +364,7 @@ class SpectrumFitter:
             print(f"  - orbits: shape {self.sav_dico['orbits'].shape}")
             print(f"  - ctime: shape {self.sav_dico['ctime'].shape}")
             print(f"  - spec_params_det: shape {self.sav_dico['spec_params_det'].shape}")
-            print(f"  - fit_fun: {self.sav_dico['fit_fun']}")
+            print(f"  - fit_fun: {self.sav_dico['fit_func']}")
             print(f"  - xc {self.sav_dico['xc']}")
 
 
@@ -461,9 +478,9 @@ class SpectrumFitter:
     ############### Print stuff ###############
 
     def __str__(self):
-        s=f"Last fit: [{self.last_result['success']}]\n"
-        val_dict=self.model.reshape_params(self.last_result['params'])
-        err_dict=self.model.reshape_params(self.last_result['perr'])
+        s=f"Last fit: [{self.last_fit['success']}]\n"
+        val_dict=self.model.reshape_params(self.last_fit['params'])
+        err_dict=self.model.reshape_params(self.last_fit['perr'])
         for key in val_dict.keys():
             val, err = val_dict[key], err_dict[key]
             s += f'--- {key} ---\n'
