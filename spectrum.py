@@ -37,7 +37,9 @@ class Spectrum:
                 return None
             
         e_bounds = self.sav['spi_rev_spectra']['energy_boundaries'][0]
-        self.channel = e_bounds['CHANNEL']
+        
+        # !! For some reason CHANNEL is offset by 1 compared with usual definition !!
+        self.channel = e_bounds['CHANNEL'] - 1
         self.e_mid = (e_bounds['e_min'] + e_bounds['e_max']) / 2
         spec = self.sav['spi_rev_spectra']['evts_det_spec'][0][det]
         

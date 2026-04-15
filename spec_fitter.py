@@ -525,3 +525,19 @@ class SpectrumFitter:
         
         result = self.fit_results[(pid, det)]
         return result['params'], result['perr']
+
+
+if __name__=='__main__':
+        
+    pid_list = np.arange(43, 2800, 1000)
+    e_fit_min, e_fit_max = 453, 490
+
+    spectrum = Spectrum(rawspec_sav_path='/data1/ipp_afs_mirror/integral/data/databases/spec_response/spi_rev_spectra/spi_rev_spectra-PSD/')
+    fitter = SpectrumFitter(
+        spectrum,
+        init_param_dir='/data1/ipp_afs_mirror/integral/software/local/idl/tsmcmc/init_files',
+        e_fit_min=e_fit_min, e_fit_max=e_fit_max,
+    )
+    # pid_list = [20,43] #[43, 1000, 2000]  # Example with multiple pids
+    all_results = fitter.fit_all_pids(pid_list, verbose=False, method='scipy',maxfev=50000, init_params=None,
+                                    with_bounds=False , save_to_file=True)
