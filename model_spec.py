@@ -71,7 +71,9 @@ class BkgModel:
         raise NotImplementedError
     
     def check_par(self):
-        '''check if number of param consistent with model'''
+        '''check if number of param consistent with model
+        condition is necessary, but not sufficient
+        '''
         raise NotImplementedError
     
     def flatten_params(self):

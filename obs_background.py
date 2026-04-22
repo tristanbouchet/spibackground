@@ -455,12 +455,12 @@ if __name__=='__main__':
     evt_type=input('event type?\n')
 
     # Directory with observation run
-    main_dir = '/home/tbouchet/cookbook/SPI_cookbook/examples/Crab/cookbook_dataset_02_0020-0600keV_SE'
-    # main_dir = '/Users/tbastro/SPI_analysis/BACKGROUND/crab_dir_test'
+    # main_dir = '/home/tbouchet/cookbook/SPI_cookbook/examples/Crab/cookbook_dataset_02_0020-0600keV_SE'
+    main_dir = '/Users/tbastro/SPI_analysis/BACKGROUND/crab_dir_test'
 
     # Directory with the background data base
-    bkg_db_dir = '/home/tbouchet/BKG_DB'
-    # bkg_db_dir = '/Users/tbastro/SPI_analysis/BACKGROUND/BKG_DB'
+    # bkg_db_dir = '/home/tbouchet/BKG_DB'
+    bkg_db_dir = '/Users/tbastro/SPI_analysis/BACKGROUND/BKG_DB'
 
     obs_bkg = ObsBkg(main_dir, evt_type)
     livetime_rev = LiveTimeRev(bkg_db_dir+'/det_livetime_rev.fits',evt_type)

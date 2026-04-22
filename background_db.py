@@ -553,11 +553,35 @@ class BkgList:
 def make_det_livetime_fits(sav_file, fits_file=None, period_type='rev'):
     '''Create FITS file from spi_det_hi data with detector live times'''
 
+    if period_type not in ['rev','annealing']:
+        raise NotImplementedError(f"period type: {period_type}")
+    
     if fits_file is None:
         fits_file= f'det_livetime_{period_type}.fits'
     # Load SAV file
     spi_det_hi = readsav(sav_file)
-    rdx_det_time = spi_det_hi['rdx']
+
+    det_count_thresholds_rev = [(139, 19), (213, 18), (774, 17), (929, 16),]
+    
+    if period_type=='rev':
+        rdx_det_time = spi_det_hi['rdx']
+        n_pids= len(rdx_det_time)
+        det_count_thresholds = det_count_thresholds_rev
+    elif period_type=='annealing':
+        # ANNEALING_BDS
+        rdx_det_time = np.arange(MAXNUM_ANNEALING)
+        n_pids = MAXNUM_ANNEALING
+        # convert the det_count_thresholds_rev
+        det_count_thresholds = []
+        i=0
+        for rev_thresh, ndet in det_count_thresholds_rev:
+            while i < len(spi_det_hi['ann'].T):
+                rev_start, rev_end = spi_det_hi['ann'].T[i]
+                if rev_start>rev_thresh:
+                    det_count_thresholds.append((i - 1, ndet))
+                    break
+                i += 1
+        # det_count_thresholds.append(det_count_thresholds_rev[-1])
     
     # Create primary HDU with header info
     primary_hdu = fits.PrimaryHDU()
@@ -569,15 +593,22 @@ def make_det_livetime_fits(sav_file, fits_file=None, period_type='rev'):
     rdx_hdu = fits.BinTableHDU.from_columns([col_rdx], name='RDX')
     
     # Create array for number of live detectors as a function of revolution
-    n_revs = len(rdx_det_time)
-    live_det_array = np.zeros(n_revs, dtype=int)
-    for rev in range(n_revs):
-        if rdx_det_time[rev] == -1: live_det_array[rev] = -1
-        elif rev <= 139: live_det_array[rev] = 19
-        elif rev <= 213: live_det_array[rev] = 18
-        elif rev <= 774: live_det_array[rev] = 17
-        elif rev <= 929: live_det_array[rev] = 16
-        else: live_det_array[rev] = 15
+    # Define detector count thresholds as (rev_threshold, n_detectors) pairs
+    
+    default_det_count = 15  # Default for rev > 929
+    
+    live_det_array = np.zeros(n_pids, dtype=int)
+    for pid in range(n_pids):
+        if rdx_det_time[pid] == -1:
+            live_det_array[pid] = -1
+        else:
+            # Find appropriate detector count based on rev threshold
+            n_det = default_det_count
+            for threshold, det_count in det_count_thresholds:
+                if pid <= threshold:
+                    n_det = det_count
+                    break
+            live_det_array[pid] = n_det
     
     # Create table HDU for live detector count
     col_live_det = fits.Column(name='LIVE_DET', format='J', array=live_det_array)
@@ -586,23 +617,22 @@ def make_det_livetime_fits(sav_file, fits_file=None, period_type='rev'):
 
     if period_type=='annealing': ext= '_ann'
     elif period_type=='rev': ext= ''
-    else: raise NotImplementedError(f"period type: {period_type}")
 
     # Create table HDU for single event detector live time
-    se_det_time = spi_det_hi['det_time'+ext][:,:19]
+    se_det_time = spi_det_hi['det_time'+ext][:, :19]
     se_cols = [fits.Column(name=f'DET{i}', format='D', array=se_det_time[:, i], unit='s') 
                for i in range(se_det_time.shape[1])]
     hdu_list.append(fits.BinTableHDU.from_columns(se_cols, name='SE_DET_TIME'))
     
     # Create table HDU for double event detector live time
-    de_det_time = spi_det_hi['det_time'+ext][:,19:61]
+    de_det_time = spi_det_hi['det_time'+ext][:, 19:61]
     de_cols = [fits.Column(name=f'DET{i}', format='D', array=de_det_time[:, i], unit='s') 
                for i in range(de_det_time.shape[1])]
     hdu_list.append(fits.BinTableHDU.from_columns(de_cols, name='DE_DET_TIME'))
     
     if period_type=='rev':
         # Create table HDU for triple event detector live time
-        te_det_time = spi_det_hi['det_time'][:,61:]
+        te_det_time = spi_det_hi['det_time'][:, 61:]
         te_cols = [fits.Column(name=f'DET{i}', format='D', array=te_det_time[:, i], unit='s') 
                 for i in range(te_det_time.shape[1])]
         hdu_list.append(fits.BinTableHDU.from_columns(te_cols, name='TE_DET_TIME'))
@@ -611,6 +641,8 @@ def make_det_livetime_fits(sav_file, fits_file=None, period_type='rev'):
     hdul = fits.HDUList(hdu_list)
     hdul.writeto(fits_file, overwrite=True)
     print(f"FITS file created: {fits_file}")
+
+
 
 def make_bkg_path_dico(testing=False):
     '''
