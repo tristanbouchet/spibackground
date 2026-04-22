@@ -1,6 +1,7 @@
 '''
 Create re-binned background spectra for each scw and detectors
-The base model (per revolution and detector) are computed beforehand and stored in a data base folder
+The base model (per period and detector) are computed beforehand and stored in a data base folder
+the period can be revolution or annealing, indexed by its Period ID (pid)
 '''
 
 from astropy.io import fits
@@ -33,40 +34,44 @@ class LiveTimeRev:
         hdul_live = fits.open(livetime_path)
         self.det_live_rdx = hdul_live['RDX'].data['RDX']
         self.num_det_live = hdul_live['LIVE_DET'].data['LIVE_DET']
-        if evt_type=='SE' or evt_type=='PSD':
+        if evt_type=='SE' or evt_type=='PSD' or evt_type=='HE':
             self.det_time = hdul_live[f'SE_DET_TIME'].data
     
-    def find_live_rev(self, rev: str):
+    def find_live_pid(self, rev: str):
         '''returns the array containing the live time of each detector for a rev'''
         rev_idx = self.det_live_rdx[int(rev)]
         if rev_idx==-1:
             print(f'rev {rev} not in index of {self.livetime_path}')
             return None
         # convert into numpy array
-        return np.array(self.det_time[rev_idx][0])
+        return np.array(self.det_time[rev_idx])
+        # return np.array(self.det_time[rev_idx][0])
 
 
-class RevBkgDB:
+class RevBkg:
     '''
-    background components from 1 revolution in ct/kev, imported from the background data base
-    possible evt_type: SE (single event), PSD
+    background components from 1 period ID (pid) in ct/kev, imported from the background data base
+    possible evt_type:
+    - SE (single event), PSD: pid=revolution
     defined on 0.5 kev energy bins for SE
     Automatically discovers available background types from FITS extensions
-    WIP: HE (High Energy single event)
+    WIP: HE (High Energy single event), pid=annealing
     '''
-    def __init__(self, rev, evt_type: str, bkg_db_dir):
-        '''rev treated as string because of leading 0s'''
-        self.rev = str(rev).zfill(4) # convert into 4 characters, whichever type rev is
+    def __init__(self, pid, evt_type: str, bkg_db_dir):
+        '''
+        load background fit
+        PID (rev or annealing) treated as string because of leading 0s
+        '''
+        self.pid = str(pid).zfill(4) # convert into 4 characters, whichever type rev is
         self.evt_type = evt_type
         if evt_type=='SE' or evt_type=='PSD':
             self.period_type = 'rev'
-
         elif evt_type=='HE':
             self.period_type = 'annealing'
         else:
             raise NotImplementedError(evt_type)
         
-        self.path = f'{bkg_db_dir}/{evt_type}/bkg_rate_{self.period_type}_{self.rev}_{evt_type}.fits.gz'
+        self.path = f'{bkg_db_dir}/{evt_type}/bkg_rate_{self.period_type}_{self.pid}_{evt_type}.fits.gz'
         self.hdul = fits.open(self.path)
         
         # build useful energy arrays
@@ -93,11 +98,12 @@ class RevBkgDB:
         convert to spectrum (ct/s/kev) by dividing by live time of each det
         then converts to rate (ct/s) with energy bin size
         '''
-        live_time_array = livetime_rev.find_live_rev(self.rev)
+        live_time_array = livetime_rev.find_live_pid(self.pid)
         if live_time_array is None:
-            print(f'no live time found for rev {self.rev}')
+            print(f'no live time found for {self.period_type} {self.pid}')
             return
-        
+        # avoid division by 0 for dead det
+        live_time_array = [1. if l==0 else l for l in live_time_array ]
         # Process all background types
         for bkg_type in self.bkg_types:
             self.bkg_data[bkg_type]['spec'] = self.bkg_data[bkg_type]['array'] / live_time_array # ct/s/kev
@@ -127,7 +133,7 @@ class RevBkgDB:
             ax.set_ylabel('Counts/keV)')
         ax.set_xlabel('E (keV)')
         ax.loglog()
-        ax.set_title(f'{bkg_type} spectrum (rev {self.rev} det {det})')
+        ax.set_title(f'{bkg_type} spectrum ({self.period_type} {self.pid} det {det})')
         ax.legend()
         return ax
 
@@ -192,10 +198,10 @@ class ObsBkg:
         print('Initialize revolution backgrounds from data base')
         self.bkg_rev_list = []
         for rev in self.rev_unique:
-            last_rev = self.valid_rev_list[rev - 1]
-            if last_rev==-1:
+            last_pid = self.valid_rev_list[rev - 1]
+            if last_pid == -1:
                 raise NotImplementedError(f'rev {rev} has no model background! check scw list.')
-            rev_bkg = RevBkgDB(rev, self.evt_type, bkg_db_dir)
+            rev_bkg = RevBkg(last_pid, self.evt_type, bkg_db_dir)
             rev_bkg.counts_to_rate(livetime_rev)
             rev_bkg.make_rbn_mat(self.E_bds)
             self.bkg_rev_list.append(rev_bkg)

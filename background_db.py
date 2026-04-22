@@ -550,9 +550,11 @@ class BkgList:
 
 
 
-def make_det_livetime_fits(sav_file, fits_file):
+def make_det_livetime_fits(sav_file, fits_file=None, period_type='rev'):
     '''Create FITS file from spi_det_hi data with detector live times'''
 
+    if fits_file is None:
+        fits_file= f'det_livetime_{period_type}.fits'
     # Load SAV file
     spi_det_hi = readsav(sav_file)
     rdx_det_time = spi_det_hi['rdx']
@@ -580,27 +582,33 @@ def make_det_livetime_fits(sav_file, fits_file):
     # Create table HDU for live detector count
     col_live_det = fits.Column(name='LIVE_DET', format='J', array=live_det_array)
     live_det_hdu = fits.BinTableHDU.from_columns([col_live_det], name='LIVE_DET')
-    
+    hdu_list= [primary_hdu, rdx_hdu, live_det_hdu]
+
+    if period_type=='annealing': ext= '_ann'
+    elif period_type=='rev': ext= ''
+    else: raise NotImplementedError(f"period type: {period_type}")
+
     # Create table HDU for single event detector live time
-    se_det_time = spi_det_hi['det_time'][:,:19]
+    se_det_time = spi_det_hi['det_time'+ext][:,:19]
     se_cols = [fits.Column(name=f'DET{i}', format='D', array=se_det_time[:, i], unit='s') 
                for i in range(se_det_time.shape[1])]
-    se_hdu = fits.BinTableHDU.from_columns(se_cols, name='SE_DET_TIME')
+    hdu_list.append(fits.BinTableHDU.from_columns(se_cols, name='SE_DET_TIME'))
     
     # Create table HDU for double event detector live time
-    de_det_time = spi_det_hi['det_time'][:,19:61]
+    de_det_time = spi_det_hi['det_time'+ext][:,19:61]
     de_cols = [fits.Column(name=f'DET{i}', format='D', array=de_det_time[:, i], unit='s') 
                for i in range(de_det_time.shape[1])]
-    de_hdu = fits.BinTableHDU.from_columns(de_cols, name='DE_DET_TIME')
+    hdu_list.append(fits.BinTableHDU.from_columns(de_cols, name='DE_DET_TIME'))
     
-    # Create table HDU for triple event detector live time
-    te_det_time = spi_det_hi['det_time'][:,61:]
-    te_cols = [fits.Column(name=f'DET{i}', format='D', array=te_det_time[:, i], unit='s') 
-               for i in range(te_det_time.shape[1])]
-    te_hdu = fits.BinTableHDU.from_columns(te_cols, name='TE_DET_TIME')
+    if period_type=='rev':
+        # Create table HDU for triple event detector live time
+        te_det_time = spi_det_hi['det_time'][:,61:]
+        te_cols = [fits.Column(name=f'DET{i}', format='D', array=te_det_time[:, i], unit='s') 
+                for i in range(te_det_time.shape[1])]
+        hdu_list.append(fits.BinTableHDU.from_columns(te_cols, name='TE_DET_TIME'))
     
     # Create HDU list and write to FITS file
-    hdul = fits.HDUList([primary_hdu, rdx_hdu, live_det_hdu, se_hdu, de_hdu, te_hdu])
+    hdul = fits.HDUList(hdu_list)
     hdul.writeto(fits_file, overwrite=True)
     print(f"FITS file created: {fits_file}")
 

@@ -170,8 +170,10 @@ class SpectrumFitter:
         # dead detectors
         if F0==0.:
             dead_param = np.zeros_like(init_params)
+            # PARALLEL RACE
             self.fit_results[result_key] = {
-                'init_params': init_params, 'params': dead_param, 'perr': dead_param, 'success': True, 'redchi2':0.
+                'init_params': init_params, 'params': dead_param, 'perr': dead_param,
+                'success': True, 'redchi2':0.
             }
             if verbose:
                 print(f"[Dead Detectors] {result_key}")
