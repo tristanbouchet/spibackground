@@ -7,6 +7,7 @@ the period can be revolution or annealing, indexed by its Period ID (pid)
 from astropy.io import fits
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 # from matplotlib.ticker import ScalarFormatter, FormatStrFormatter, LogFormatter
 # from tqdm import tqdm
 # default libraries
@@ -25,6 +26,7 @@ def timer(func):
         print(f"{func.__name__} took {elapsed:.3f}s")
         return result
     return wrapper
+
 
 class LiveTimeRev:
     '''Live-time per rev and per detector'''
@@ -46,6 +48,77 @@ class LiveTimeRev:
         # convert into numpy array
         return np.array(self.det_time[rev_idx])
         # return np.array(self.det_time[rev_idx][0])
+
+
+class ScwTracerDB:
+    '''
+    contains full database of scw, including tracers
+    ScwID columns defined by ISOC with format: RRRRPPPPSSSF
+    where RRRR=rev, PPPP=ISOC pointing, SSS=ISOC sub-division, F=obs flag (0 for pointing, 1 for slew)
+    '''
+    def __init__(self, scw_tracer_path):
+        print("Loading Scw Data Base...")
+        self.hdul_tracer=fits.open(scw_tracer_path)
+        data=self.hdul_tracer[1].data
+        # keeps only relevant columns
+        tracer_columns=['ScwID','Revolution','TStart','TEnd','TElapse','ISOC_Pointing','ScwType','GeSatTot','SSATotRate']
+        self.df_scw=pd.DataFrame(data, columns=tracer_columns)
+        self.df_scw['PTID_ISOC'] = self.df_scw.ScwID.apply(lambda x:x[:8])
+        self.df_scw['REV'] = self.df_scw.Revolution.apply(lambda x:str(x).zfill(4))
+    
+    def merge_with_point_df(self, point_df, epsilon_T=0.001):
+        """
+        Merge the scw.fits (ISOC scw) with pointing.fits (SPI pointing) for 1 obs
+        sometimes the same SPI pointing
+        
+        Parameters:
+        -----------
+        point_df : pd.DataFrame
+            DataFrame with columns: PTID_ISOC, PTID_SPI, TSTART, TSTOP, etc.
+        epsilon_T : float
+            Threshold for time difference in days (default 0.001)
+        """
+        merged_rows = []
+        
+        for idx, point_row in point_df.iterrows():
+            ptid = point_row['PTID_ISOC']
+            
+            # Step 1: Find all matching rows by PTID_ISOC
+            scw_matches = self.df_scw[self.df_scw['PTID_ISOC'] == ptid]
+            
+            if len(scw_matches) == 0:
+                raise ValueError(f"No match found for PTID_ISOC={ptid} in scw_tracer_db.df_scw")
+            
+            # Step 2: If multiple matches, find the row with smallest time difference
+            if len(scw_matches) > 1:
+                # Calculate time differences
+                time_diffs = (
+                    np.abs(scw_matches['TStart'] - point_row['TSTART']) +
+                    np.abs(scw_matches['TEnd'] - point_row['TSTOP'])
+                )
+                
+                # Pick the row with smallest time difference
+                best_idx = time_diffs.idxmin()
+                min_time_diff = time_diffs.min()
+                
+                # Check if the best match is within epsilon_T
+                if min_time_diff >= epsilon_T:
+                    raise ValueError(
+                        f"No time match found for PTID_ISOC={ptid}. "
+                        f"Min time difference: {min_time_diff:.6f}s, epsilon_T={epsilon_T}s"
+                    )
+                
+                scw_row = self.df_scw.loc[best_idx]
+            else:
+                scw_row = scw_matches.iloc[0]
+            
+            # Step 3: Merge the rows
+            merged_row = {**scw_row.to_dict(), **point_row.to_dict()}
+            
+            merged_rows.append(merged_row)
+        merged_df=pd.DataFrame(merged_rows)
+        merged_df['DIFF_TELAPSE'] = merged_df['TElapse'] - merged_df['TELAPSE']
+        return merged_df
 
 
 class RevBkg:
@@ -142,29 +215,41 @@ class ObsBkg:
     list of all scw contained in an observation
     contains method to build the final output backgrounds used by spimodfit
     '''
-    def __init__(self, main_dir, evt_type, tracer='GeSatTot'):
+    def __init__(self, main_dir, evt_type, tracer_name='GeSatTot', epsilon_T=0.001):
         self.main_dir = main_dir
         self.evt_type = evt_type
-        self.load_scw(tracer)
+        self.epsilon_T = epsilon_T
+        self.tracer_name = tracer_name
+        # self.load_scw(tracer)
+        self.load_pointing()
         self.load_energies()
         self.load_dead_time()
     
     ##### File loading #####
 
-    def load_scw(self, tracer):
-        print('loading scw info')
-        hdul_scw = fits.open(f'{self.main_dir}/scw.fits.gz')
-        scw_data = hdul_scw[1].data
-        self.scw_list = scw_data['ScwID']
-        self.rev_list = scw_data['Revolution']
+    def load_pointing(self):
+        '''
+        pointing contains lists of SPI pointing
+        defined with the format: RRRRPPPP.AAAAAA
+        where R=rev, P=ISOC pointing, A=SPI-specific sub-pointing (different from ISOC sub-pointing)
+        '''
+        print('loading pointing info...')
+        hdul_point = fits.open(f'{self.main_dir}/spi/pointing.fits.gz')
+        point_data=hdul_point[1].data
+        # Convert to native byte order to fix big-endian/little-endian compatibility
+        point_data_native = point_data.astype(point_data.dtype.newbyteorder('='), copy=False)
+        self.point_df = pd.DataFrame(point_data_native, columns=['PTID_ISOC', 'PTID_SPI','TSTART', 'TSTOP','TELAPSE'])
+        self.point_df['REV'] = self.point_df.PTID_ISOC.apply(lambda x:int(x[:4]))
+        self.point_df['SCW_PT_IDX'] = self.point_df.PTID_SPI.apply(lambda x:x.split('.')[-1])
+
+        self.rev_list = self.point_df['REV'].to_list()
         self.rev_unique = np.unique(self.rev_list)
         # Map revolution numbers to indices in rebin arrays
         self.rev_to_idx = {rev: i for i, rev in enumerate(self.rev_unique)}
         self.rev_indices = np.array([self.rev_to_idx[rev] for rev in self.rev_list]) # size=Nscw
-        self.tracer = scw_data[tracer]
 
     def load_energies(self):
-        print('load energy bounds')
+        print('Loading energy bounds')
         hdul_ebds = fits.open(f'{self.main_dir}/spi/energy_boundaries.fits.gz')
         ebds_data = hdul_ebds[1].data
         self.chan = ebds_data['CHANNEL']
@@ -176,12 +261,17 @@ class ObsBkg:
         self.E_width = E_max - E_min
 
     def load_dead_time(self):
-        print('loading observation live times')
+        print('Loading observation live times')
         hdul_dead = fits.open(f'{self.main_dir}/spi/dead_time.fits.gz')
         self.det_num = hdul_dead[1].header['DET_NUM']
         self.pt_num = hdul_dead[1].header['PT_NUM']
         self.livetime_scw = hdul_dead[1].data['LIVETIME'] # in s, size=Ndet*Npointings
         # self.scw_list = [ScwBkg(scw_name) for scw_name in scw_file_list]
+    
+    def load_tracer(self, scw_tracer_db: ScwTracerDB):
+        print('Finding tracer in scw data base...')
+        point_df_merged = scw_tracer_db.merge_with_point_df(self.point_df, epsilon_T=self.epsilon_T)
+        self.tracer = point_df_merged[self.tracer_name].to_numpy()
 
     ##### Init obs constants (independent of scw) #####
 
@@ -189,7 +279,7 @@ class ObsBkg:
         '''
         Use the list of unique rev to load all the required DB background
         if a rev is not in the DB, it will find the closest previous valid rev
-        TO FIX: same rev is computed many times if many consecutive unvalid revs...
+        TO FIX: same rev is computed many times if many consecutive unvalid revs
         '''
         print('Initialize data base meta')
         hdul_meta = fits.open(f'{bkg_db_dir}/{self.evt_type}/info_rev_bkg_{self.evt_type}.fits.gz')
@@ -456,14 +546,23 @@ if __name__=='__main__':
 
     # Directory with observation run
     # main_dir = '/home/tbouchet/cookbook/SPI_cookbook/examples/Crab/cookbook_dataset_02_0020-0600keV_SE'
-    main_dir = '/Users/tbastro/SPI_analysis/BACKGROUND/crab_dir_test'
+    main_dir = '/Users/tbastro/SPI_analysis/BACKGROUND/rev2680to2730_0020-0400keV_SE'
+    # main_dir = '/Users/tbastro/SPI_analysis/BACKGROUND/crab_dir_test'
 
     # Directory with the background data base
     # bkg_db_dir = '/home/tbouchet/BKG_DB'
     bkg_db_dir = '/Users/tbastro/SPI_analysis/BACKGROUND/BKG_DB'
 
+    # Path to the scw file containing the tracers
+    # can be one with all the scw:
+    # scw_db_path = '/Users/tbastro/SPI_analysis/BACKGROUND/ScwDB_Rev0016-2887.fits.gz'
+    # or the small one created by spiselectscw (scw.fits.gz):
+    scw_db_path = '/Users/tbastro/SPI_analysis/BACKGROUND/rev2680to2730_0020-0400keV_SE/scw.fits.gz'
+
     obs_bkg = ObsBkg(main_dir, evt_type)
-    livetime_rev = LiveTimeRev(bkg_db_dir+'/det_livetime_rev.fits',evt_type)
+    livetime_rev = LiveTimeRev(bkg_db_dir+'/det_livetime_rev.fits', evt_type)
+    scw_tracer_db = ScwTracerDB(scw_db_path)
+    obs_bkg.load_tracer(scw_tracer_db)
     obs_bkg.normalize_tracer(livetime_rev)
     obs_bkg.init_rev_bkg_list(livetime_rev, bkg_db_dir)
     bkg_dict = obs_bkg.calc_bkg()
