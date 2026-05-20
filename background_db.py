@@ -21,10 +21,6 @@ from datetime import datetime
 
 from model_spec import *
 
-
-# GAUSSCONST = np.sqrt(np.pi/2)
-# LOGGAUSSCONST = np.log(GAUSSCONST)
-# SQRT2PI = np.sqrt(2*np.pi)
 MAXNUM_REV = 3000
 MAXNUM_ANNEALING = 100
 # Contains bounds of inter-annealing revolutions
@@ -61,99 +57,6 @@ def order_path_list(spec_params_path_list):
     file_order_idx = np.argsort([float(f.split('_')[4]) for f in spec_params_file_list])
     return [spec_params_path_list[i] for i in file_order_idx]
 
-#################### Math functions ####################
-
-# class EnergyConversion:
-#     '''Static methods for energy-index conversions'''
-#     @staticmethod
-#     def idx_to_energy_SE(x):
-#         return 18.25 + x * 0.5
-    
-#     @staticmethod
-#     def idx_to_energy_HE(x):
-#         return 18.5 + x
-    
-#     @staticmethod
-#     def energy_to_idx_HE(x):
-#         return x - 18.5
-
-# def log_erfc(x):
-#     '''
-#     DEFUNCT
-#     logarithm of the complementary error function
-#     relies on the logarithm of gaussian cumulative distribution (log_ndtr) from scipy
-#     this handles very large/small values well
-#     '''
-#     return np.log(2.0) + log_ndtr(-x * np.sqrt(2.0))
-
-# def distorted_gauss(E, A, E0, sig, tau):
-#     '''
-#     convolved line shape (gaussian with exponential)
-#     A is in counts/bin
-#     '''
-#     # for small tau, exp ~ dirac dist -> line ~ gauss
-#     if tau<=1e-3:
-#         return GAUSSCONST * A * np.exp(-(E-E0)**2/ (2*sig**2))
-#     # the exponnorm distribution from scipy has a right-tail, chosing (x=-E, mu=-E0) gives a left-tail
-#     else:
-#         return SQRT2PI * A * sig * exponnorm.pdf(-E, tau/sig, loc=-E0, scale=sig)
-
-# def power_law(E, Em, C0, alpha):
-#     '''C0 in counts/bin'''
-#     return C0 * (E/Em)**alpha
-
-# #################### Background models ####################
-
-# class BkgModel:
-#     '''background model base class'''
-#     def __init__(self, Em):
-#         self.Em = Em
-    
-#     def init_params(self, params):
-#         self.params = params
-#         self.n_par = len(self.params)
-
-#     def calc(self, E):
-#         raise NotImplementedError
-    
-#     def __call__(self, E):
-#         return self.calc(E)
-
-# class ClsPLModel(BkgModel):
-#     '''
-#     convolve line shape (gaussian with exponential) + power-law continuum
-#     use a different (A,E0,sig,tau) for each line
-#     result is in counts/bin
-#     '''
-#     def calc(self, E):
-#         if (self.n_par - 2)%4 != 0:
-#             raise IndexError
-#         n_lines = (self.n_par - 2)//4
-#         cont = power_law(E, self.Em, *self.params[:2])
-#         all_lines = np.array([distorted_gauss(E, *self.params[2+4*l: 2+4*(l+1)]) for l in range(n_lines)])
-#         return {'cont':cont, 'lines':all_lines}
-    
-# class Cls2PLModel(BkgModel):
-#     '''
-#     convolve line shape (gaussian with exponential) + power-law continuum
-#     use a different (A,E0,sig) for each line, but the same tau for all lines
-#     result is in counts/bin
-#     '''
-#     def calc(self, E):
-#         if (self.n_par - 3)%3 != 0:
-#             raise IndexError
-#         n_lines = (self.n_par - 3)//3
-#         cont = power_law(E, self.Em, *self.params[:2])
-#         all_lines = np.array([distorted_gauss(E, *self.params[2+3*l: 2+3*(l+1)], self.params[-1])\
-#                               for l in range(n_lines)])
-#         return {'cont':cont, 'lines':all_lines}
-
-
-# BKG_MODELS = {
-#     'cls_plaw_function': ClsPLModel,
-#     'cls_plaw_function2': Cls2PLModel,
-# }
-# """Dictionary mapping function name in .sav files with the class name"""
 
 #################### Make background files from parameters ####################
 

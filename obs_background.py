@@ -59,6 +59,7 @@ class ScwTracerDB:
     def __init__(self, scw_tracer_path):
         print("Loading Scw Data Base...")
         self.hdul_tracer=fits.open(scw_tracer_path)
+        self.scw_tracer_path=scw_tracer_path
         data=self.hdul_tracer[1].data
         # keeps only relevant columns
         tracer_columns=['ScwID','Revolution','TStart','TEnd','TElapse','ISOC_Pointing','ScwType','GeSatTot','SSATotRate']
@@ -68,6 +69,8 @@ class ScwTracerDB:
     
     def merge_with_point_df(self, point_df, epsilon_T=0.001):
         """
+        DEFUNCT
+
         Merge the scw.fits (ISOC scw) with pointing.fits (SPI pointing) for 1 obs
         sometimes the same SPI pointing
         
@@ -89,7 +92,7 @@ class ScwTracerDB:
             if len(scw_matches) == 0:
                 raise ValueError(f"No match found for PTID_ISOC={ptid} in scw_tracer_db.df_scw")
             
-            # Step 2: If multiple matches, find the row with smallest time difference
+
             if len(scw_matches) > 1:
                 # Calculate time differences
                 time_diffs = (
@@ -268,10 +271,37 @@ class ObsBkg:
         self.livetime_scw = hdul_dead[1].data['LIVETIME'] # in s, size=Ndet*Npointings
         # self.scw_list = [ScwBkg(scw_name) for scw_name in scw_file_list]
     
+    @staticmethod
+    def weight_tracer(x, scw_tracer_db: ScwTracerDB, tracer):
+        '''
+        find all the scw interesecting a pointing
+        calculate the tracer (in ct/s) by weighing the tracer of each scw by the intersection length
+        normalize again by the total intersection
+        '''
+        # Find all matching rows by PTID_ISOC
+        ptid = x['PTID_ISOC']
+        scw_matches = scw_tracer_db.df_scw[scw_tracer_db.df_scw['PTID_ISOC'] == ptid]
+        
+        if len(scw_matches) == 0:
+            raise ValueError(f"No match found for PTID_ISOC={ptid} in {scw_tracer_db.scw_tracer_path}.")
+        
+        weighted_intersect=[]
+        for scw in scw_matches.iterrows():
+            # find intersection length
+            scw_serie= scw[1] # the serie values are in the second entry
+            cover_time = min(scw_serie.TEnd, x.TSTOP) - max(scw_serie.TStart, x.TSTART)
+            # no covering = negative values
+            weighted_intersect.append(max(0., cover_time))
+        weighted_intersect=np.array(weighted_intersect)
+        # weighted sum of tracers
+        tracer = np.sum(weighted_intersect * scw_matches[tracer].values) / np.sum(weighted_intersect)
+        return tracer
+
     def load_tracer(self, scw_tracer_db: ScwTracerDB):
         print('Finding tracer in scw data base...')
-        point_df_merged = scw_tracer_db.merge_with_point_df(self.point_df, epsilon_T=self.epsilon_T)
-        self.tracer = point_df_merged[self.tracer_name].to_numpy()
+        # point_df_merged = scw_tracer_db.merge_with_point_df(self.point_df, epsilon_T=self.epsilon_T)
+        self.point_df[self.tracer_name] = self.point_df.apply(self.weight_tracer, args=(scw_tracer_db, self.tracer_name,), axis=1)
+        self.tracer = self.point_df[self.tracer_name].to_numpy()
 
     ##### Init obs constants (independent of scw) #####
 
@@ -542,22 +572,24 @@ class ObsBkg:
 
 if __name__=='__main__':
 
-    evt_type=input('event type?\n')
+    evt_type="SE"
+    # evt_type=input('event type?\n')
+
+    # Directory with the background data base
+    bkg_db_dir = '/home/tbouchet/BKG_DB'
+    # bkg_db_dir = '/Users/tbastro/SPI_analysis/BACKGROUND/BKG_DB'
 
     # Directory with observation run
     # main_dir = '/home/tbouchet/cookbook/SPI_cookbook/examples/Crab/cookbook_dataset_02_0020-0600keV_SE'
-    main_dir = '/Users/tbastro/SPI_analysis/BACKGROUND/rev2680to2730_0020-0400keV_SE'
+    main_dir = '/Users/tbastro/SPI_analysis/BACKGROUND/SPI_ScwDB_alldata_2003'
+    # main_dir = '/Users/tbastro/SPI_analysis/BACKGROUND/rev2680to2730_0020-0400keV_SE'
     # main_dir = '/Users/tbastro/SPI_analysis/BACKGROUND/crab_dir_test'
-
-    # Directory with the background data base
-    # bkg_db_dir = '/home/tbouchet/BKG_DB'
-    bkg_db_dir = '/Users/tbastro/SPI_analysis/BACKGROUND/BKG_DB'
 
     # Path to the scw file containing the tracers
     # can be one with all the scw:
-    # scw_db_path = '/Users/tbastro/SPI_analysis/BACKGROUND/ScwDB_Rev0016-2887.fits.gz'
+    scw_db_path = '/Users/tbastro/SPI_analysis/BACKGROUND/ScwDB_Rev0016-2887.fits.gz'
     # or the small one created by spiselectscw (scw.fits.gz):
-    scw_db_path = '/Users/tbastro/SPI_analysis/BACKGROUND/rev2680to2730_0020-0400keV_SE/scw.fits.gz'
+    # scw_db_path = '/Users/tbastro/SPI_analysis/BACKGROUND/rev2680to2730_0020-0400keV_SE/scw.fits.gz'
 
     obs_bkg = ObsBkg(main_dir, evt_type)
     livetime_rev = LiveTimeRev(bkg_db_dir+'/det_livetime_rev.fits', evt_type)
