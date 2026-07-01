@@ -52,7 +52,7 @@ class LiveTimeRev:
 
 class ScwTracerDB:
     '''
-    contains full database of scw, including tracers
+    contains database of scw, including tracers
     ScwID columns defined by ISOC with format: RRRRPPPPSSSF
     where RRRR=rev, PPPP=ISOC pointing, SSS=ISOC sub-division, F=obs flag (0 for pointing, 1 for slew)
     '''
@@ -297,11 +297,31 @@ class ObsBkg:
         tracer = np.sum(weighted_intersect * scw_matches[tracer].values) / np.sum(weighted_intersect)
         return tracer
 
-    def load_tracer(self, scw_tracer_db: ScwTracerDB):
+    def load_tracer(self, scw_tracer_db: ScwTracerDB, livetime_rev: LiveTimeRev):
         print('Finding tracer in scw data base...')
         # point_df_merged = scw_tracer_db.merge_with_point_df(self.point_df, epsilon_T=self.epsilon_T)
         self.point_df[self.tracer_name] = self.point_df.apply(self.weight_tracer, args=(scw_tracer_db, self.tracer_name,), axis=1)
         self.tracer = self.point_df[self.tracer_name].to_numpy()
+        self.normalize_tracer(livetime_rev)
+    
+    def normalize_tracer(self, livetime_rev: LiveTimeRev):
+        '''Normalize tracer by number of live detectors, then by average tracer per revolution'''
+        # Normalize by number of live detectors
+        live_rev_idx = livetime_rev.det_live_rdx[self.rev_list]
+        n_det_live = livetime_rev.num_det_live[live_rev_idx]
+        tracer_avg = self.tracer / n_det_live
+        
+        # Compute average tracer per revolution
+        tracer_avg_per_rev = np.zeros(len(self.rev_unique))
+        for i, rev in enumerate(self.rev_unique):
+            mask = self.rev_list == rev
+            tracer_avg_per_rev[i] = np.mean(tracer_avg[mask])
+        
+        # Map each scw to its revolution's average and normalize
+        rev_indices_for_avg = np.array([self.rev_to_idx[rev] for rev in self.rev_list])
+        tracer_avg_per_rev_per_scw = tracer_avg_per_rev[rev_indices_for_avg]
+        self.tracer_norm = tracer_avg / tracer_avg_per_rev_per_scw
+
 
     ##### Init obs constants (independent of scw) #####
 
@@ -325,24 +345,6 @@ class ObsBkg:
             rev_bkg.counts_to_rate(livetime_rev)
             rev_bkg.make_rbn_mat(self.E_bds)
             self.bkg_rev_list.append(rev_bkg)
-    
-    def normalize_tracer(self, livetime_rev: LiveTimeRev):
-        '''Normalize tracer by number of live detectors, then by average tracer per revolution'''
-        # Normalize by number of live detectors
-        live_rev_idx = livetime_rev.det_live_rdx[self.rev_list]
-        n_det_live = livetime_rev.num_det_live[live_rev_idx]
-        tracer_avg = self.tracer / n_det_live
-        
-        # Compute average tracer per revolution
-        tracer_avg_per_rev = np.zeros(len(self.rev_unique))
-        for i, rev in enumerate(self.rev_unique):
-            mask = self.rev_list == rev
-            tracer_avg_per_rev[i] = np.mean(tracer_avg[mask])
-        
-        # Map each scw to its revolution's average and normalize
-        rev_indices_for_avg = np.array([self.rev_to_idx[rev] for rev in self.rev_list])
-        tracer_avg_per_rev_per_scw = tracer_avg_per_rev[rev_indices_for_avg]
-        self.tracer_norm = tracer_avg / tracer_avg_per_rev_per_scw
 
     @timer
     def calc_bkg(self, bkg_types=None):
@@ -514,10 +516,11 @@ class ObsBkg:
 
         # Create background output directory (re-create if already exists)
         if output_dir is None:
-            output_dir = f'{main_dir}/spi/bg-e{str(int(self.emin)).zfill(4)}-{str(int(self.emax)).zfill(4)}'
+            output_dir = f'{self.main_dir}/spi/bg-e{str(int(self.emin)).zfill(4)}-{str(int(self.emax)).zfill(4)}'
         print(f'Creating output dir: {output_dir}')
         if os.path.exists(output_dir): pass
         else: os.mkdir(output_dir)
+        self.output_dir = output_dir
         
         # Write individual background files
         for bkg_type, data in self.bkg_output_dico.items():
@@ -591,11 +594,10 @@ if __name__=='__main__':
     # or the small one created by spiselectscw (scw.fits.gz):
     # scw_db_path = '/Users/tbastro/SPI_analysis/BACKGROUND/rev2680to2730_0020-0400keV_SE/scw.fits.gz'
 
-    obs_bkg = ObsBkg(main_dir, evt_type)
     livetime_rev = LiveTimeRev(bkg_db_dir+'/det_livetime_rev.fits', evt_type)
     scw_tracer_db = ScwTracerDB(scw_db_path)
-    obs_bkg.load_tracer(scw_tracer_db)
-    obs_bkg.normalize_tracer(livetime_rev)
+    obs_bkg = ObsBkg(main_dir, evt_type)
+    obs_bkg.load_tracer(scw_tracer_db, livetime_rev)
     obs_bkg.init_rev_bkg_list(livetime_rev, bkg_db_dir)
     bkg_dict = obs_bkg.calc_bkg()
     obs_bkg.write_output_bkg()
