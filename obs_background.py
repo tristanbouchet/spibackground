@@ -41,7 +41,7 @@ class LiveTimeRev:
     
     def find_live_pid(self, rev: str):
         '''returns the array containing the live time of each detector for a rev'''
-        rev_idx = self.det_live_rdx[int(rev)]
+        rev_idx = self.det_live_rdx[int(rev) - 1]
         if rev_idx==-1:
             print(f'rev {rev} not in index of {self.livetime_path}')
             return None
@@ -218,11 +218,12 @@ class ObsBkg:
     list of all scw contained in an observation
     contains method to build the final output backgrounds used by spimodfit
     '''
-    def __init__(self, main_dir, evt_type, tracer_name='GeSatTot', epsilon_T=0.001):
+    def __init__(self, main_dir, evt_type, tracer_name='GeSatTot', epsilon_T=0.001, bg_idx_filename = 'output_bgmodel_conti_sep_idx.fits.gz'):
         self.main_dir = main_dir
         self.evt_type = evt_type
         self.epsilon_T = epsilon_T
         self.tracer_name = tracer_name
+        self.bg_idx_filename = bg_idx_filename
         # self.load_scw(tracer)
         self.load_pointing()
         self.load_energies()
@@ -569,8 +570,8 @@ class ObsBkg:
         primary = fits.PrimaryHDU()
         primary.header.update({'AUTHOR': 'tbouchet', 'DATE': datetime.now().strftime('%Y-%m-%d %H:%M')
                                })
-        fits.HDUList([primary, grouping_hdu]).writeto(f'{output_dir}/output_bgmodel_conti_sep_idx.fits.gz', overwrite=True)
-        print(f"Written {output_dir}/output_bgmodel_conti_sep_idx.fits.gz")
+        fits.HDUList([primary, grouping_hdu]).writeto(f'{output_dir}/{self.bg_idx_filename}', overwrite=True)
+        print(f"Written {output_dir}/{self.bg_idx_filename}")
     
 
 if __name__=='__main__':
