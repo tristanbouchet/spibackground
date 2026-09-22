@@ -281,10 +281,15 @@ class ObsBkg:
         '''
         # Find all matching rows by PTID_ISOC
         ptid = x['PTID_ISOC']
+        rev = x['REV']
         scw_matches = scw_tracer_db.df_scw[scw_tracer_db.df_scw['PTID_ISOC'] == ptid]
         
         if len(scw_matches) == 0:
-            raise ValueError(f"No match found for PTID_ISOC={ptid} in {scw_tracer_db.scw_tracer_path}.")
+            # take entire revolution
+            scw_matches = scw_tracer_db.df_scw[scw_tracer_db.df_scw['Revolution'] == rev]
+            
+            if len(scw_matches) == 0:
+                raise ValueError(f"No match found for PTID_ISOC={ptid} in {scw_tracer_db.scw_tracer_path}.")
         
         weighted_intersect=[]
         for scw in scw_matches.iterrows():
@@ -301,6 +306,7 @@ class ObsBkg:
     def load_tracer(self, scw_tracer_db: ScwTracerDB, livetime_rev: LiveTimeRev):
         print('Finding tracer in scw data base...')
         # point_df_merged = scw_tracer_db.merge_with_point_df(self.point_df, epsilon_T=self.epsilon_T)
+        # rn this is O(N^2) but it should be O(N) because df are sorted by time...
         self.point_df[self.tracer_name] = self.point_df.apply(self.weight_tracer, args=(scw_tracer_db, self.tracer_name,), axis=1)
         self.tracer = self.point_df[self.tracer_name].to_numpy()
         self.normalize_tracer(livetime_rev)
@@ -584,16 +590,18 @@ if __name__=='__main__':
     # bkg_db_dir = '/Users/tbastro/SPI_analysis/BACKGROUND/BKG_DB'
 
     # Directory with observation run
+    main_dir = '/home/tbouchet/test_reg_5_2004'
     # main_dir = '/home/tbouchet/cookbook/SPI_cookbook/examples/Crab/cookbook_dataset_02_0020-0600keV_SE'
-    main_dir = '/Users/tbastro/SPI_analysis/BACKGROUND/SPI_ScwDB_alldata_2003'
+    # main_dir = '/Users/tbastro/SPI_analysis/BACKGROUND/SPI_ScwDB_alldata_2003'
     # main_dir = '/Users/tbastro/SPI_analysis/BACKGROUND/rev2680to2730_0020-0400keV_SE'
     # main_dir = '/Users/tbastro/SPI_analysis/BACKGROUND/crab_dir_test'
 
     # Path to the scw file containing the tracers
     # can be one with all the scw:
-    scw_db_path = '/Users/tbastro/SPI_analysis/BACKGROUND/ScwDB_Rev0016-2887.fits.gz'
+    # scw_db_path = '/Users/tbastro/SPI_analysis/BACKGROUND/ScwDB_Rev0016-2887.fits.gz'
     # or the small one created by spiselectscw (scw.fits.gz):
     # scw_db_path = '/Users/tbastro/SPI_analysis/BACKGROUND/rev2680to2730_0020-0400keV_SE/scw.fits.gz'
+    scw_db_path = f'{main_dir}/scw.fits.gz'
 
     livetime_rev = LiveTimeRev(bkg_db_dir+'/det_livetime_rev.fits', evt_type)
     scw_tracer_db = ScwTracerDB(scw_db_path)
@@ -601,4 +609,4 @@ if __name__=='__main__':
     obs_bkg.load_tracer(scw_tracer_db, livetime_rev)
     obs_bkg.init_rev_bkg_list(livetime_rev, bkg_db_dir)
     bkg_dict = obs_bkg.calc_bkg()
-    obs_bkg.write_output_bkg()
+    # obs_bkg.write_output_bkg()
