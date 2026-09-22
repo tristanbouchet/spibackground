@@ -540,10 +540,12 @@ def make_det_livetime_fits(sav_file, fits_file=None, period_type='rev'):
                 for i in range(te_det_time.shape[1])]
         hdu_list.append(fits.BinTableHDU.from_columns(te_cols, name='TE_DET_TIME'))
     
-    # Create HDU list and write to FITS file
-    hdul = fits.HDUList(hdu_list)
-    hdul.writeto(fits_file, overwrite=True)
-    print(f"FITS file created: {fits_file}")
+    if save_fits:
+        # Create HDU list and write to FITS file
+        hdul = fits.HDUList(hdu_list)
+        hdul.writeto(fits_file, overwrite=True)
+        print(f"FITS file created: {fits_file}")
+    return 
 
 
 
